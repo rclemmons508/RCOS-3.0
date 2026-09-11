@@ -1,0 +1,10 @@
+{
+  "name": "RCOS",
+  "description": "Enterprise Multi-Agent AI system designed to adapt to company workflows, reduce workload, and manage autonomous agents with onboarding customization.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
