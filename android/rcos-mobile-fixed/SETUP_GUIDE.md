@@ -17,7 +17,7 @@ This guide walks you through setting up RCOS 2.0 as a fully functional demo app.
 ### Step 1: Create Firebase Project
 1. Go to https://console.firebase.google.com
 2. Click "Add project"
-3. Name it "RCOS-2.0"
+3. Name it "RCOS-3.0"
 4. Accept terms and create
 
 ### Step 2: Add Android App
@@ -95,8 +95,8 @@ export JAVA_HOME=$(brew --prefix openjdk@11)
 
 ### Step 2: Clone Repository
 ```bash
-git clone https://github.com/rclemmons508/RCOS-2.0.git
-cd RCOS-2.0
+git clone https://github.com/rclemmons508/RCOS-3.0.git
+cd RCOS-3.0/android/rcos-mobile-fixed
 ```
 
 ### Step 3: Configure Files

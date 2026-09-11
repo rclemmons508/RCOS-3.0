@@ -45,7 +45,7 @@ service cloud.firestore {
 
 ### Via Firebase Console
 1. Go to https://console.firebase.google.com
-2. Select RCOS-2.0 project
+2. Select RCOS-3.0 project
 3. Go to Firestore Database → Rules
 4. Paste production rules
 5. Click Publish

@@ -15,7 +15,7 @@ We'll create:
 
 ### Via Firebase Console
 1. Go to https://console.firebase.google.com
-2. Select RCOS-2.0 project
+2. Select RCOS-3.0 project
 3. Go to Authentication → Users
 4. Click "Add user"
 5. Create demo account:
@@ -188,7 +188,7 @@ seedData();
 1. Go to Firebase Console → Project Settings (gear icon)
 2. Click "Service Accounts" tab
 3. Click "Generate new private key"
-4. Save as `service-account-key.json` in RCOS-2.0 directory
+4. Save as `service-account-key.json` in RCOS-3.0 directory
 5. **Add to .gitignore**:
    ```bash
    echo "service-account-key.json" >> .gitignore
@@ -197,7 +197,7 @@ seedData();
 ## Step 4: Run Data Seeding Script
 
 ```bash
-# From RCOS-2.0 directory
+# From RCOS-3.0 directory
 node firestore_seed.js
 
 # Output:
