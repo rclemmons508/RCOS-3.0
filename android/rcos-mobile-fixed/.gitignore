@@ -19,3 +19,6 @@ debug.keystore
 
 .env
 app/.env
+.gradle/
+node_modules/
+dist/
