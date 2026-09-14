@@ -1,0 +1,5 @@
+node_modules/
+dist/
+android/rcos-mobile-fixed/.gradle/
+node_modules/
+dist/

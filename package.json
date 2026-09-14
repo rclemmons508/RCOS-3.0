@@ -1,0 +1,32 @@
+{
+  "name": "rcos-platform",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "tsc && vite build",
+    "lint": "tsc --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 3000"
+  },
+  "dependencies": {
+    "@google/genai": "^2.21.0",
+    "canvas-confetti": "^1.9.3",
+    "clsx": "^2.1.1",
+    "firebase": "^12.19.0",
+    "lucide-react": "^0.475.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/canvas-confetti": "^1.9.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "tailwindcss": "^4.0.6",
+    "@tailwindcss/vite": "^4.0.6"
+  }
+}
