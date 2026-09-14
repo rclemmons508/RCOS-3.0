@@ -18,6 +18,7 @@ import { GovernanceView } from './components/GovernanceView';
 import { ApkCenterView } from './components/ApkCenterView';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WorkspaceSyncView } from './components/WorkspaceSyncView';
+import { GmailView } from './components/GmailView';
 import { GoogleCalendarEvent, GooglePickerDocument } from './services/googleWorkspace';
 
 import { 
@@ -395,6 +396,7 @@ export const App: React.FC = () => {
             <WorkspaceSyncView
               agents={agents}
               onDirectTask={handleDirectAgentTask}
+              onOpenGmailHub={() => setActiveTab('gmail')}
               onImportCalendarEvent={(evt: GoogleCalendarEvent) => {
                 const startTime = evt.start.dateTime 
                   ? new Date(evt.start.dateTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
@@ -418,6 +420,24 @@ export const App: React.FC = () => {
                   status: 'In Progress'
                 });
                 logAction('PICKER_INGESTION', `Ingested Google Drive document via Google Picker: "${doc.name}"`);
+                setActiveTab('jobs');
+              }}
+            />
+          )}
+
+          {activeTab === 'gmail' && (
+            <GmailView
+              agents={agents}
+              onDirectAgentTask={handleDirectAgentTask}
+              onOpenWorkspaceSetup={() => setActiveTab('workspace')}
+              onCreateJobFromEmail={(subject, sender, snippet) => {
+                handleCreateJob({
+                  title: `Email Action Item: ${subject.slice(0, 45)}`,
+                  summary: `From ${sender}. Ingested from Gmail inbox: "${snippet}". Assigned to autonomous fleet queue.`,
+                  priority: 'High',
+                  status: 'In Progress'
+                });
+                logAction('GMAIL_JOB_CREATED', `Converted email "${subject.slice(0, 30)}" to fleet job`);
                 setActiveTab('jobs');
               }}
             />

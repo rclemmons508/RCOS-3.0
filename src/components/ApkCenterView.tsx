@@ -16,13 +16,13 @@ export const ApkCenterView: React.FC = () => {
   const [copiedCmd, setCopiedCmd] = useState(false);
 
   const localBuildSnippet = `# 1. Clone repository
-git clone https://github.com/rclemmons508/RCOS-3.0.git
-cd RCOS-3.0/android/rcos-mobile-fixed
+git clone https://github.com/rclemmons508/RCOS-V1.0.git
+cd RCOS-V1.0/android/rcos-mobile-fixed
 
 # 2. Ensure Gradle wrapper has execute permission
 chmod +x gradlew
 
-# 3. Build APK directly from current RCOS 3.0 source
+# 3. Build APK directly from current RCOS source
 ./gradlew clean :app:assembleDebug
 
 # 4. Built APK output location:
@@ -104,7 +104,7 @@ chmod +x gradlew
         {/* Action Links */}
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           <a
-            href="https://github.com/rclemmons508/RCOS-3.0/actions"
+            href="https://github.com/rclemmons508/RCOS-V1.0/actions"
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/40 text-center"

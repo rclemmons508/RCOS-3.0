@@ -38,7 +38,15 @@ export interface GmailMessageSnippet {
   to: string;
   date: string;
   unread: boolean;
+  starred?: boolean;
   labels: string[];
+}
+
+export interface GmailFullMessage extends GmailMessageSnippet {
+  bodyHtml?: string;
+  bodyText?: string;
+  cc?: string;
+  bcc?: string;
 }
 
 export interface WorkspaceSyncStats {
@@ -60,6 +68,7 @@ export interface GooglePickerDocument {
 }
 
 import { WORKSPACE_SCOPES } from './firebaseAuth';
+import firebaseConfig from '../../firebase-applet-config.json';
 export const SCOPES = WORKSPACE_SCOPES.join(' ');
 
 export {
@@ -70,8 +79,8 @@ export {
   getCachedAccessToken
 } from './firebaseAuth';
 
-// Google Client ID configuration
-export const DEFAULT_GOOGLE_CLIENT_ID = '160087856875-lv292ie72a2jgg69udq00tldcg97hib0.apps.googleusercontent.com';
+// Google Client ID configuration - aligned with configured Firebase Project
+export const DEFAULT_GOOGLE_CLIENT_ID = firebaseConfig.oAuthClientId || '812425382282-ueuv0j8bmpkp8d89c83hen7atgg3nghe.apps.googleusercontent.com';
 
 let userConfiguredClientId: string | null = null;
 
@@ -180,9 +189,81 @@ export async function fetchCalendarEvents(accessToken: string): Promise<GoogleCa
   return data.items || [];
 }
 
+// Decode Gmail URL-safe base64 data
+function decodeBase64UrlSafe(str: string): string {
+  try {
+    const cleaned = str.replace(/-/g, '+').replace(/_/g, '/');
+    return decodeURIComponent(
+      Array.prototype.map.call(atob(cleaned), (c: string) => {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join('')
+    );
+  } catch {
+    try {
+      return atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+    } catch {
+      return '';
+    }
+  }
+}
+
+// Extract email body parts recursively from message payload
+function extractBodyFromPayload(payload: any): { html?: string; text?: string } {
+  if (!payload) return {};
+  let html = '';
+  let text = '';
+
+  const traverse = (part: any) => {
+    if (!part) return;
+    if (part.mimeType === 'text/html' && part.body?.data) {
+      html = decodeBase64UrlSafe(part.body.data);
+    } else if (part.mimeType === 'text/plain' && part.body?.data) {
+      text = decodeBase64UrlSafe(part.body.data);
+    }
+    if (part.parts && Array.isArray(part.parts)) {
+      part.parts.forEach(traverse);
+    }
+  };
+
+  if (payload.body?.data) {
+    const decoded = decodeBase64UrlSafe(payload.body.data);
+    if (payload.mimeType === 'text/html') {
+      html = decoded;
+    } else {
+      text = decoded;
+    }
+  }
+
+  if (payload.parts && Array.isArray(payload.parts)) {
+    payload.parts.forEach(traverse);
+  }
+
+  return { html, text };
+}
+
+export interface FetchGmailOptions {
+  maxResults?: number;
+  labelIds?: string[];
+  query?: string;
+}
+
 // Fetch email messages and headers from Gmail API v1
-export async function fetchGmailMessages(accessToken: string): Promise<GmailMessageSnippet[]> {
-  const listUrl = `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=15&q=label:INBOX`;
+export async function fetchGmailMessages(
+  accessToken: string,
+  options?: FetchGmailOptions
+): Promise<GmailMessageSnippet[]> {
+  const maxResults = options?.maxResults || 20;
+  const params = new URLSearchParams();
+  params.set('maxResults', maxResults.toString());
+
+  if (options?.labelIds && options.labelIds.length > 0) {
+    options.labelIds.forEach(lbl => params.append('labelIds', lbl));
+  }
+  if (options?.query) {
+    params.set('q', options.query);
+  }
+
+  const listUrl = `https://www.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`;
   
   const listResponse = await fetch(listUrl, {
     headers: {
@@ -199,8 +280,8 @@ export async function fetchGmailMessages(accessToken: string): Promise<GmailMess
   const listData = await listResponse.json();
   const rawMessages: { id: string; threadId: string }[] = listData.messages || [];
 
-  // Fetch message details in parallel
-  const messagePromises = rawMessages.slice(0, 12).map(async (msg) => {
+  // Fetch message headers in parallel
+  const messagePromises = rawMessages.slice(0, maxResults).map(async (msg) => {
     try {
       const msgUrl = `https://www.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date`;
       const res = await fetch(msgUrl, {
@@ -214,6 +295,7 @@ export async function fetchGmailMessages(accessToken: string): Promise<GmailMess
       
       const headers = data.payload?.headers || [];
       const getHeader = (name: string) => headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+      const labels: string[] = data.labelIds || [];
 
       return {
         id: data.id,
@@ -224,8 +306,9 @@ export async function fetchGmailMessages(accessToken: string): Promise<GmailMess
         from: getHeader('From') || 'Unknown Sender',
         to: getHeader('To') || 'Me',
         date: getHeader('Date') || '',
-        unread: (data.labelIds || []).includes('UNREAD'),
-        labels: data.labelIds || []
+        unread: labels.includes('UNREAD'),
+        starred: labels.includes('STARRED'),
+        labels
       } as GmailMessageSnippet;
     } catch {
       return null;
@@ -234,6 +317,176 @@ export async function fetchGmailMessages(accessToken: string): Promise<GmailMess
 
   const resolved = await Promise.all(messagePromises);
   return resolved.filter((m): m is GmailMessageSnippet => m !== null);
+}
+
+// Fetch full email message body and detailed headers
+export async function fetchGmailMessageDetails(
+  accessToken: string,
+  messageId: string
+): Promise<GmailFullMessage> {
+  const url = `https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to fetch message details: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const headers = data.payload?.headers || [];
+  const getHeader = (name: string) => headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+  const labels: string[] = data.labelIds || [];
+
+  const { html, text } = extractBodyFromPayload(data.payload);
+
+  return {
+    id: data.id,
+    threadId: data.threadId,
+    snippet: data.snippet || '',
+    internalDate: data.internalDate,
+    subject: getHeader('Subject') || '(No Subject)',
+    from: getHeader('From') || 'Unknown Sender',
+    to: getHeader('To') || 'Me',
+    cc: getHeader('Cc') || undefined,
+    bcc: getHeader('Bcc') || undefined,
+    date: getHeader('Date') || '',
+    unread: labels.includes('UNREAD'),
+    starred: labels.includes('STARRED'),
+    labels,
+    bodyHtml: html,
+    bodyText: text
+  };
+}
+
+export interface SendEmailParams {
+  to: string;
+  subject: string;
+  body: string;
+  cc?: string;
+  bcc?: string;
+  threadId?: string;
+}
+
+// Send an email via Gmail API
+export async function sendGmailMessage(
+  accessToken: string,
+  params: SendEmailParams
+): Promise<{ id: string; threadId: string }> {
+  // Construct RFC 2822 email format
+  const headerLines = [
+    `To: ${params.to}`,
+    params.cc ? `Cc: ${params.cc}` : null,
+    params.bcc ? `Bcc: ${params.bcc}` : null,
+    `Subject: =?utf-8?B?${btoa(unescape(encodeURIComponent(params.subject)))}?=`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: 7bit'
+  ].filter(Boolean);
+
+  const formattedBody = params.body.includes('<') && params.body.includes('>')
+    ? params.body
+    : params.body.replace(/\n/g, '<br/>');
+
+  const fullEmail = headerLines.join('\r\n') + '\r\n\r\n' + formattedBody;
+
+  // URL-safe base64 encoding
+  const rawBase64 = btoa(unescape(encodeURIComponent(fullEmail)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const payload: any = { raw: rawBase64 };
+  if (params.threadId) {
+    payload.threadId = params.threadId;
+  }
+
+  const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gmail API send failed: ${response.status} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+// Move email message to Trash
+export async function trashGmailMessage(
+  accessToken: string,
+  messageId: string
+): Promise<boolean> {
+  const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/trash`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to trash email: ${response.status} - ${errText}`);
+  }
+
+  return true;
+}
+
+// Modify Gmail message labels (e.g. read/unread, star/unstar)
+export async function modifyGmailLabels(
+  accessToken: string,
+  messageId: string,
+  addLabelIds: string[] = [],
+  removeLabelIds: string[] = []
+): Promise<boolean> {
+  const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      addLabelIds,
+      removeLabelIds
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to modify labels: ${response.status} - ${errText}`);
+  }
+
+  return true;
+}
+
+// Helper to mark message as read
+export async function markGmailAsRead(accessToken: string, messageId: string): Promise<boolean> {
+  return modifyGmailLabels(accessToken, messageId, [], ['UNREAD']);
+}
+
+// Helper to mark message as unread
+export async function markGmailAsUnread(accessToken: string, messageId: string): Promise<boolean> {
+  return modifyGmailLabels(accessToken, messageId, ['UNREAD'], []);
+}
+
+// Helper to toggle star on message
+export async function toggleStarGmailMessage(accessToken: string, messageId: string, isStarred: boolean): Promise<boolean> {
+  if (isStarred) {
+    return modifyGmailLabels(accessToken, messageId, [], ['STARRED']);
+  } else {
+    return modifyGmailLabels(accessToken, messageId, ['STARRED'], []);
+  }
 }
 
 // Google Picker API Loader

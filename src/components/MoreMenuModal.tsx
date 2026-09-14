@@ -11,6 +11,7 @@ import {
   ShieldCheck, 
   Smartphone, 
   Cloud,
+  Mail,
   X,
   ChevronRight
 } from 'lucide-react';
@@ -32,6 +33,14 @@ export const MoreMenuModal: React.FC<MoreMenuModalProps> = ({
   if (!isOpen) return null;
 
   const menuItems = [
+    {
+      id: 'gmail',
+      title: 'Gmail & Communications Hub',
+      desc: 'Read, compose, send, and triage enterprise emails with AI integration',
+      icon: Mail,
+      color: 'text-rose-400',
+      badge: 'Live Gmail'
+    },
     {
       id: 'workspace',
       title: 'Google Workspace Sync',

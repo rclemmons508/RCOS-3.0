@@ -59,13 +59,15 @@ interface WorkspaceSyncViewProps {
   onDirectTask?: (agentId: string, task: string) => void;
   onImportCalendarEvent?: (event: GoogleCalendarEvent) => void;
   onImportDriveDocument?: (doc: GooglePickerDocument) => void;
+  onOpenGmailHub?: () => void;
 }
 
 export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
   agents = [],
   onDirectTask,
   onImportCalendarEvent,
-  onImportDriveDocument
+  onImportDriveDocument,
+  onOpenGmailHub
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'drive' | 'calendar' | 'gmail'>('overview');
   
@@ -1066,12 +1068,23 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
                 <span className="text-[11px] text-slate-500 font-mono">({filteredMails.length})</span>
               </div>
 
-              {isAuthenticated && (
-                <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  <span>Synced</span>
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {onOpenGmailHub && (
+                  <button
+                    onClick={onOpenGmailHub}
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>Open Full Gmail Hub →</span>
+                  </button>
+                )}
+
+                {isAuthenticated && (
+                  <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Synced</span>
+                  </span>
+                )}
+              </div>
             </div>
 
             {filteredMails.length === 0 ? (
