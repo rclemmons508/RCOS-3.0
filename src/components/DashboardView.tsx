@@ -14,7 +14,8 @@ import {
   Sparkles,
   Send,
   Cloud,
-  X
+  X,
+  MessageSquare
 } from 'lucide-react';
 import { Agent, Job, Workflow, CallRecord } from '../types';
 import { RcosLogo } from './RcosLogo';
@@ -270,6 +271,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <p className="text-xs text-slate-400">
                 Google Drive files, Calendar schedule & Gmail live synchronization
+              </p>
+            </div>
+          </div>
+
+          <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-[#76d418] transition-transform group-hover:translate-x-1" />
+        </div>
+
+        {/* Button 4: Employee Direct Messaging & Job Dispatch */}
+        <div
+          id="btn-card-team-messaging"
+          onClick={() => onNavigate('messaging')}
+          className="rounded-2xl p-4 bg-[#0a1510] hover:bg-[#0e1e16] border border-[#76d418]/40 hover:border-[#76d418] transition-all flex items-center justify-between cursor-pointer group shadow-lg shadow-[#76d418]/5"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-[#76d418]/15 border border-[#76d418]/40 flex items-center justify-center text-[#76d418]">
+              <MessageSquare className="w-5 h-5 text-[#76d418]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white group-hover:text-[#76d418] transition-colors">
+                  Team Comms & Department Dispatch
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-[#76d418]/20 border border-[#76d418]/40 text-[#76d418] text-[10px] font-bold">
+                  Direct Comms
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Direct staff messaging, departmental job dispatching & paperwork approvals
               </p>
             </div>
           </div>

@@ -34,6 +34,14 @@ export const MoreMenuModal: React.FC<MoreMenuModalProps> = ({
 
   const menuItems = [
     {
+      id: 'messaging',
+      title: 'Employee Messaging & Job Dispatch',
+      desc: 'Direct staff messaging, departmental job dispatching, and paperwork review & sign-off',
+      icon: MessageSquare,
+      color: 'text-[#76d418]',
+      badge: 'Live Team Comms'
+    },
+    {
       id: 'gmail',
       title: 'Gmail & Communications Hub',
       desc: 'Read, compose, send, and triage enterprise emails with AI integration',

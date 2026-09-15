@@ -42,5 +42,19 @@ service cloud.firestore {
       );
       allow delete: if isSignedIn() && isValidId(clientId) && existing().ownerId == request.auth.uid;
     }
+
+    match /employee_messages/{messageId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(messageId) && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(messageId);
+      allow delete: if isSignedIn() && isValidId(messageId) && existing().ownerId == request.auth.uid;
+    }
+
+    match /employee_documents/{documentId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(documentId) && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(documentId);
+      allow delete: if isSignedIn() && isValidId(documentId) && existing().ownerId == request.auth.uid;
+    }
   }
 }

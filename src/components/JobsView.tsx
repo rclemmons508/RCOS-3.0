@@ -9,7 +9,8 @@ import {
   Filter, 
   Search,
   Zap,
-  Bot
+  Bot,
+  Send
 } from 'lucide-react';
 import { Job, JobStatus } from '../types';
 
@@ -18,13 +19,15 @@ interface JobsViewProps {
   onUpdateJobStatus: (jobId: string, status: JobStatus) => void;
   onCreateJob: (job: Partial<Job>) => void;
   orgName?: string;
+  onOpenMessaging?: () => void;
 }
 
 export const JobsView: React.FC<JobsViewProps> = ({
   jobs,
   onUpdateJobStatus,
   onCreateJob,
-  orgName
+  orgName,
+  onOpenMessaging
 }) => {
   const [filterPriority, setFilterPriority] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,14 +83,27 @@ export const JobsView: React.FC<JobsViewProps> = ({
           </p>
         </div>
 
-        <button
-          id="btn-create-new-job"
-          onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 rounded-xl bg-[#76d418] hover:bg-[#66bd14] text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-[#76d418]/20 cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Task Deliverable</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {onOpenMessaging && (
+            <button
+              type="button"
+              onClick={onOpenMessaging}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-[#76d418] border border-[#76d418]/40 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Department Dispatch</span>
+            </button>
+          )}
+
+          <button
+            id="btn-create-new-job"
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 rounded-xl bg-[#76d418] hover:bg-[#66bd14] text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-[#76d418]/20 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Task Deliverable</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}

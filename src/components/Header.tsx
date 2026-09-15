@@ -4,19 +4,24 @@ import {
   ChevronDown, 
   Sliders, 
   LogOut,
-  Sparkles
+  Sparkles,
+  MessageSquare
 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSetup: () => void;
   onRefresh?: () => void;
   onOpenWorkspaceSync?: () => void;
+  onOpenMessaging?: () => void;
+  unreadMessagesCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
   onOpenSetup,
   onRefresh,
-  onOpenWorkspaceSync
+  onOpenWorkspaceSync,
+  onOpenMessaging,
+  unreadMessagesCount = 0
 }) => {
   return (
     <header 
@@ -31,7 +36,24 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Actions matching Screenshot 1 */}
-        <div className="flex items-center gap-2.5 sm:gap-3.5">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Team Direct Messaging & Dispatch Button */}
+          {onOpenMessaging && (
+            <button
+              id="btn-header-team-messaging"
+              onClick={onOpenMessaging}
+              title="Employee Messaging & Job Dispatch"
+              className="relative p-1.5 rounded-lg text-slate-300 hover:text-[#76d418] hover:bg-slate-900 transition-colors cursor-pointer"
+            >
+              <MessageSquare className="w-5 h-5 text-[#76d418]" />
+              {unreadMessagesCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#76d418] text-slate-950 text-[9px] font-black flex items-center justify-center animate-pulse">
+                  {unreadMessagesCount}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* "Auto" pill with sync icon and dropdown - links directly to Workspace Sync */}
           <button
             id="btn-header-auto-sync"

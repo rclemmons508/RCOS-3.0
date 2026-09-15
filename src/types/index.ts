@@ -142,3 +142,104 @@ export interface AuditLog {
   ipAddress: string;
   details: string;
 }
+
+// Enterprise Department Definitions
+export type Department = 
+  | 'Operations & Field Services'
+  | 'Dispatch & Logistics'
+  | 'Client Support & Accounts'
+  | 'Technical & Engineering'
+  | 'Legal & Compliance'
+  | 'Executive Leadership';
+
+export type EmployeeStatus = 'online' | 'in_field' | 'busy' | 'offline';
+
+export interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department: Department;
+  status: EmployeeStatus;
+  avatarSeed: string;
+  phone: string;
+  isCurrentUser?: boolean;
+}
+
+export type PaperworkCategory = 
+  | 'Work Order'
+  | 'Change Order'
+  | 'Site Inspection'
+  | 'Subcontractor Agreement'
+  | 'Invoice & Billing'
+  | 'Safety Sign-Off'
+  | 'General Document';
+
+export type PaperworkStatus = 'Pending Review' | 'Approved' | 'Changes Requested' | 'Rejected';
+
+export type PaperworkUrgency = 'Routine' | 'High Priority' | 'Urgent / Immediate';
+
+export interface PaperworkDocument {
+  id: string;
+  title: string;
+  category: PaperworkCategory;
+  fileName: string;
+  fileSize: string;
+  fileType: string;
+  fileDataUrl?: string;
+  senderId: string;
+  senderName: string;
+  senderDepartment: Department;
+  targetDepartment: Department;
+  assignedReviewerId?: string;
+  assignedReviewerName?: string;
+  submissionDate: string;
+  urgency: PaperworkUrgency;
+  status: PaperworkStatus;
+  notes: string;
+  reviewerFeedback?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  signature?: string;
+  autoDispatchJobOnApproval: boolean;
+  dispatchedJobId?: string;
+  estimatedBudget?: string;
+  clientName?: string;
+}
+
+export interface JobDispatchPayload {
+  jobId: string;
+  title: string;
+  targetDepartment: Department;
+  assignedEmployeeId?: string;
+  assignedEmployeeName?: string;
+  clientName?: string;
+  priority: JobPriority;
+  dueDate: string;
+  budget: string;
+  summary: string;
+  status: JobStatus;
+  paperworkAttachment?: {
+    documentId: string;
+    title: string;
+    category: PaperworkCategory;
+    status: PaperworkStatus;
+  };
+}
+
+export interface DirectMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  senderDepartment: Department;
+  recipientId: string; // employee ID or 'dept:<Department>'
+  recipientType: 'direct' | 'department';
+  recipientName: string;
+  content: string;
+  timestamp: string;
+  paperwork?: PaperworkDocument;
+  jobDispatch?: JobDispatchPayload;
+  readBy: string[];
+}
+

@@ -19,6 +19,8 @@ import { ApkCenterView } from './components/ApkCenterView';
 import { CreateAgentModal } from './components/CreateAgentModal';
 import { WorkspaceSyncView } from './components/WorkspaceSyncView';
 import { GmailView } from './components/GmailView';
+import { TeamMessagingView } from './components/TeamMessagingView';
+import { employeeMessagingService } from './services/employeeMessagingService';
 import { GoogleCalendarEvent, GooglePickerDocument } from './services/googleWorkspace';
 
 import { 
@@ -46,6 +48,17 @@ export const App: React.FC = () => {
     industry: 'Technology & Software',
     bottleneck: 'Autonomous enterprise workflows and multi-agent operations'
   });
+
+  // Employee Messaging Unread Count
+  const [unreadMsgCount, setUnreadMsgCount] = useState<number>(() => employeeMessagingService.getUnreadCount());
+
+  React.useEffect(() => {
+    const updateUnread = () => {
+      setUnreadMsgCount(employeeMessagingService.getUnreadCount());
+    };
+    const unsub = employeeMessagingService.subscribe(updateUnread);
+    return unsub;
+  }, []);
 
   // Core State (No fictional companies or fake employees!)
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
@@ -282,6 +295,8 @@ export const App: React.FC = () => {
         onOpenSetup={() => setIsSetupModalOpen(true)}
         onRefresh={() => logAction('AUTO_SYNC', 'Synchronized real-time agent telemetry')}
         onOpenWorkspaceSync={() => setActiveTab('workspace')}
+        onOpenMessaging={() => setActiveTab('messaging')}
+        unreadMessagesCount={unreadMsgCount}
       />
 
       {/* Main Viewport */}
@@ -346,6 +361,7 @@ export const App: React.FC = () => {
               orgName={enterpriseProfile.name}
               onUpdateJobStatus={handleUpdateJobStatus}
               onCreateJob={handleCreateJob}
+              onOpenMessaging={() => setActiveTab('messaging')}
             />
           )}
 
@@ -463,6 +479,14 @@ export const App: React.FC = () => {
 
           {activeTab === 'apk' && (
             <ApkCenterView />
+          )}
+
+          {activeTab === 'messaging' && (
+            <TeamMessagingView
+              onDispatchJobToSystem={handleCreateJob}
+              onNavigateToJobs={() => setActiveTab('jobs')}
+              onLogAuditAction={logAction}
+            />
           )}
         </div>
       </main>

@@ -1,6 +1,6 @@
 {
   "name": "RCOS",
-  "description": "Enterprise Multi-Agent AI system designed to adapt to company workflows, reduce workload, and manage autonomous agents with onboarding customization.",
+  "description": "Enterprise Multi-Agent AI system with employee direct messaging, departmental job dispatching, and paperwork review and approval workflows.",
   "requestFramePermissions": [
     "microphone"
   ],
