@@ -13,69 +13,36 @@ name: Build Android APK
 runs-on: ubuntu-latest
 
 steps:
-  # ---------------------------------------------------------
-  # 1. Checkout RCOS source code
-  # ---------------------------------------------------------
   - name: Checkout repository
     uses: actions/checkout@v4
 
-  # ---------------------------------------------------------
-  # 2. Set up Node.js
-  # ---------------------------------------------------------
   - name: Set up Node.js
     uses: actions/setup-node@v4
     with:
       node-version: "22"
       cache: "npm"
 
-  # ---------------------------------------------------------
-  # 3. Install web application dependencies
-  # ---------------------------------------------------------
   - name: Install dependencies
     run: npm install
 
-  # ---------------------------------------------------------
-  # 4. Build RCOS 3.0 web application
-  # ---------------------------------------------------------
   - name: Build RCOS 3.0 Web Application
     run: npm run build
 
-  # ---------------------------------------------------------
-  # 5. Copy Vite build into Android assets
-  # ---------------------------------------------------------
   - name: Sync Web Application into Android Assets
     run: |
       echo "Syncing latest RCOS 3.0 web application..."
-
       mkdir -p android/rcos-mobile-fixed/app/src/main/assets
-
       rm -rf android/rcos-mobile-fixed/app/src/main/assets/*
-
       cp -r dist/* android/rcos-mobile-fixed/app/src/main/assets/
-
-      echo ""
-      echo "RCOS 3.0 assets successfully copied."
-      echo ""
-      echo "Assets directory:"
+      echo "Assets successfully copied."
       ls -la android/rcos-mobile-fixed/app/src/main/assets/
 
-  # ---------------------------------------------------------
-  # 6. Set up Java 17
-  # ---------------------------------------------------------
   - name: Set up Java 17
     uses: actions/setup-java@v4
     with:
       distribution: "temurin"
       java-version: "17"
 
-  # ---------------------------------------------------------
-  # 7. Set up Android SDK
-  #
-  # IMPORTANT:
-  # Do NOT install the obsolete "tools" package.
-  # Modern Android SDK uses command-line tools,
-  # platform-tools, build-tools, and Android platforms.
-  # ---------------------------------------------------------
   - name: Setup Android SDK
     uses: android-actions/setup-android@v3
     with:
@@ -84,78 +51,45 @@ steps:
         platforms;android-35
         build-tools;35.0.0
 
-  # ---------------------------------------------------------
-  # 8. Accept Android SDK licenses
-  # ---------------------------------------------------------
   - name: Accept Android SDK licenses
-    run: |
-      yes | sdkmanager --licenses >/dev/null 2>&1 || true
+    run: yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-  # ---------------------------------------------------------
-  # 9. Display Android SDK information
-  # ---------------------------------------------------------
   - name: Verify Android SDK
     run: |
       echo "Android SDK location:"
       echo "$ANDROID_HOME"
       echo ""
-
       echo "Installed SDK packages:"
       sdkmanager --list_installed || true
-
       echo ""
       echo "ADB version:"
       adb --version
 
-  # ---------------------------------------------------------
-  # 10. Set up Gradle
-  # ---------------------------------------------------------
   - name: Setup Gradle
     uses: gradle/actions/setup-gradle@v4
 
-  # ---------------------------------------------------------
-  # 11. Make Gradle wrapper executable
-  # ---------------------------------------------------------
   - name: Make Gradle wrapper executable
     run: chmod +x android/rcos-mobile-fixed/gradlew
 
-  # ---------------------------------------------------------
-  # 12. Verify Gradle wrapper
-  # ---------------------------------------------------------
   - name: Verify Gradle wrapper
     working-directory: android/rcos-mobile-fixed
     run: ./gradlew --version
 
-  # ---------------------------------------------------------
-  # 13. Build RCOS 3.0 Debug APK
-  # ---------------------------------------------------------
   - name: Build RCOS 3.0 Debug APK
     working-directory: android/rcos-mobile-fixed
-    run: |
-      ./gradlew assembleDebug \
-        --no-daemon \
-        --stacktrace
+    run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-  # ---------------------------------------------------------
-  # 14. Verify APK output
-  # ---------------------------------------------------------
   - name: Verify APK output
     run: |
       echo "Searching for generated APK files..."
-      echo ""
-
       find android/rcos-mobile-fixed/app/build/outputs \
         -type f \
         -name "*.apk" \
         -print
-
       echo ""
       echo "Debug APK directory:"
       ls -lah android/rcos-mobile-fixed/app/build/outputs/apk/debug/
 
-  # ---------------------------------------------------------
-  # 15. Upload APK as GitHub Actions artifact
-  # ---------------------------------------------------------
   - name: Upload RCOS 3.0 Debug APK
     uses: actions/upload-artifact@v4
     with:
