@@ -1,10 +1,11 @@
+
 name: Build RCOS 3.0 Mobile APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 jobs:
@@ -19,7 +20,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Install dependencies
         run: npm install
@@ -39,19 +40,15 @@ jobs:
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: "temurin"
+          java-version: "17"
 
-      
-            - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: ''
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         run: |
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses >/dev/null 2>&1 || true
@@ -69,7 +66,7 @@ jobs:
       - name: Verify APK output
         run: |
           echo "Verifying generated APK:"
-          ls -la android/rcos-mobile-fixed/app/build/outputs/apk/debug/
+          ls -la app/build/outputs/apk/debug/
 
       - name: Upload RCOS 3.0 Debug APK
         uses: actions/upload-artifact@v4
