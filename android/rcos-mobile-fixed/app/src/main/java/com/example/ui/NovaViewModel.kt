@@ -546,7 +546,7 @@ class NovaViewModel(application: Application) : AndroidViewModel(application) {
                             remoteAgents.forEach { agent ->
                                 try {
                                     repository.insertAgent(agent)
-                                } catch (_: Throwable) {}
+                                } catch (e: Throwable) {}
                             }
                         }
                     }
@@ -566,7 +566,7 @@ class NovaViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             firestoreSyncManager.seedAgentsToFirestore(localAgents)
                         }
-                    } catch (_: Throwable) {}
+                    } catch (e: Throwable) {}
                 }
             } catch (t: Throwable) {
                 android.util.Log.w("NovaViewModel", "Firestore sync startup notice: ${t.message}")
@@ -2288,7 +2288,7 @@ class NovaViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 repository.updateAgent(updated)
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {}
         }
 
         // Push real-time to Firestore
@@ -2472,14 +2472,14 @@ class NovaViewModel(application: Application) : AndroidViewModel(application) {
             configuredAgents.forEach { agent ->
                 try {
                     repository.insertAgent(agent)
-                } catch (_: Throwable) {}
+                } catch (e: Throwable) {}
             }
 
             // 4. Update live active agents and sync to Firestore
             _firestoreActiveAgents.value = activeAgentsList
             try {
                 firestoreSyncManager.seedAgentsToFirestore(activeAgentsList)
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {}
 
             // 5. Update workspace entity
             try {
@@ -2507,7 +2507,7 @@ class NovaViewModel(application: Application) : AndroidViewModel(application) {
                     isConfigured = true
                 )
                 repository.updateWorkspace(updatedWs)
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {}
 
             // 6. Generate strategic remediation job if none exists
             if (_jobTasks.value.isEmpty()) {

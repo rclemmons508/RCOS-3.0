@@ -89,7 +89,7 @@ chmod +x gradlew
           </div>
           <div className="flex justify-between border-b border-slate-800/60 pb-2">
             <span className="text-slate-500">Build Target:</span>
-            <span className="text-slate-200">Android 14 (API 34) / Jetpack Compose / Gradle</span>
+            <span className="text-slate-200">Android 15 (API 35) / Jetpack Compose / Gradle</span>
           </div>
           <div className="flex justify-between border-b border-slate-800/60 pb-2">
             <span className="text-slate-500">Output APK:</span>

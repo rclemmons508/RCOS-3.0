@@ -131,7 +131,7 @@ class MainActivity : Activity() {
     private fun openAssetStream(path: String): InputStream? {
         return try {
             assets.open(path)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             null
         }
     }

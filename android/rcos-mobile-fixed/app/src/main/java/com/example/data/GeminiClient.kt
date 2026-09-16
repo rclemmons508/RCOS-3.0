@@ -91,7 +91,7 @@ object GeminiClient {
     private fun parseBackendError(body: String): String {
         return try {
             JSONObject(body).optString("error", body)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             body
         }
     }
