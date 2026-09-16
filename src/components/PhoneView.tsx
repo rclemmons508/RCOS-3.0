@@ -1,95 +1,773 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Phone, 
   PhoneCall, 
   PhoneOff, 
+  PhoneIncoming, 
   Mic, 
   MicOff, 
   Volume2, 
-  Play, 
-  Pause, 
-  Clock, 
+  VolumeX, 
+  Bot, 
   User, 
-  Building, 
+  UserCheck, 
+  Building2, 
+  Sparkles, 
+  Send, 
+  MessageSquare, 
+  Pause, 
+  Play, 
+  AlertTriangle, 
   CheckCircle2, 
-  AlertCircle,
-  Hash,
-  Delete
+  Radio, 
+  Clock, 
+  FileText, 
+  PlusCircle, 
+  Trash2, 
+  Layers, 
+  ShieldAlert, 
+  Copy, 
+  Check, 
+  Headphones, 
+  ExternalLink,
+  ChevronRight,
+  Info
 } from 'lucide-react';
-import { CallRecord } from '../types';
+import { CallRecord, CallTranscriptEntry, Job } from '../types';
+import { 
+  playPhoneRing, 
+  playDtmfTone, 
+  playConnectTone, 
+  playDisconnectTone, 
+  speakAiResponse, 
+  stopSpeech 
+} from '../services/telephonyAudio';
 
 interface PhoneViewProps {
   calls: CallRecord[];
   onLogCall: (call: CallRecord) => void;
+  onDeleteCall?: (callId: string) => void;
+  onCreateJobFromCall?: (job: Partial<Job>) => void;
   orgName?: string;
 }
 
-export const PhoneView: React.FC<PhoneViewProps> = ({ calls, onLogCall, orgName }) => {
+interface ActiveCallState {
+  id: string;
+  callerName: string;
+  phoneNumber: string;
+  company: string;
+  status: 'ringing' | 'connected_user' | 'connected_ai' | 'on_hold' | 'ended';
+  answeredBy: 'human' | 'ai' | null;
+  startTime: number;
+  transcript: CallTranscriptEntry[];
+  whisperDirectives: string[];
+}
+
+export const PhoneView: React.FC<PhoneViewProps> = ({ 
+  calls, 
+  onLogCall, 
+  onDeleteCall, 
+  onCreateJobFromCall, 
+  orgName 
+}) => {
+  // Navigation tabs inside Phone System
+  const [activeSubTab, setActiveSubTab] = useState<'switchboard' | 'customer_portal' | 'logs'>('switchboard');
+
+  // Keypad state
   const [dialedNumber, setDialedNumber] = useState('');
-  const [activeCall, setActiveCall] = useState<CallRecord | null>(null);
+  const [outboundCallerName, setOutboundCallerName] = useState('Direct Outbound Client');
+
+  // Active call state
+  const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
+  const [incomingCall, setIncomingCall] = useState<ActiveCallState | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [operatorSpeechInput, setOperatorSpeechInput] = useState('');
+  const [whisperInput, setWhisperInput] = useState('');
+  const [showWhisperBox, setShowWhisperBox] = useState(false);
+  const [selectedCallDetails, setSelectedCallDetails] = useState<CallRecord | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [hasCopiedWebhook, setHasCopiedWebhook] = useState(false);
 
-  // Keypad click handler
-  const handleKeypadPress = (val: string) => {
-    if (dialedNumber.length < 16) {
-      setDialedNumber(prev => prev + val);
-    }
-  };
+  // Customer Portal simulator state
+  const [customerName, setCustomerName] = useState('Sarah Jenkins');
+  const [customerCompany, setCustomerCompany] = useState('Apex Technologies');
+  const [customerNumber, setCustomerNumber] = useState('+1 (415) 890-4321');
+  const [customerIssuePreset, setCustomerIssuePreset] = useState('Emergency Cloud Incident');
+  const [customerSpeechInput, setCustomerSpeechInput] = useState('');
+  const [isCustomerCalling, setIsCustomerCalling] = useState(false);
+  const [customerCallState, setCustomerCallState] = useState<'idle' | 'calling' | 'connected' | 'ended'>('idle');
 
-  const handleBackspace = () => {
-    setDialedNumber(prev => prev.slice(0, -1));
-  };
+  // WebSocket & Ring Audio refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const stopRingRef = useRef<(() => void) | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
 
-  const handleStartCall = () => {
-    if (!dialedNumber.trim()) return;
+  // Auto-scroll transcript to bottom
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [activeCall?.transcript]);
 
-    const newCall: CallRecord = {
-      id: `call-${Date.now()}`,
-      callerName: 'Direct Outbound Telephony',
-      company: orgName || 'Enterprise Workspace',
-      phoneNumber: dialedNumber,
-      timestamp: 'Just now',
-      duration: '00:00',
-      sentiment: 'Positive',
-      summary: `Autonomous agent connected via SIP trunk to ${dialedNumber}. Real-time audio stream initialized.`,
-      agentRoutedTo: 'VoIP Telephony Engine',
-      status: 'In Progress'
-    };
+  // Connect to Telephony WebSocket Gateway
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/telephony/stream`;
 
-    setActiveCall(newCall);
-    setCallDuration(0);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    // Increment duration timer
-    const interval = setInterval(() => {
-      setCallDuration(prev => prev + 1);
-    }, 1000);
-
-    (window as any).__rcosCallTimer = interval;
-  };
-
-  const handleEndCall = () => {
-    if ((window as any).__rcosCallTimer) {
-      clearInterval((window as any).__rcosCallTimer);
-    }
-
-    if (activeCall) {
-      const minutes = Math.floor(callDuration / 60);
-      const seconds = callDuration % 60;
-      const formattedDuration = `${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
-
-      const completedCall: CallRecord = {
-        ...activeCall,
-        duration: formattedDuration,
-        status: 'Completed',
-        summary: `Call to ${dialedNumber} completed (${formattedDuration}). Real-time audio transcribed by VoIP Telephony Engine.`
+      ws.onopen = () => {
+        // Register this browser client as an operator console
+        ws.send(JSON.stringify({ type: 'REGISTER_OPERATOR' }));
       };
 
-      onLogCall(completedCall);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          switch (data.type) {
+            case 'INCOMING_CALL': {
+              const newIncoming: ActiveCallState = data.call;
+              setIncomingCall(newIncoming);
+              // Start audible ring
+              if (!stopRingRef.current) {
+                stopRingRef.current = playPhoneRing();
+              }
+              break;
+            }
+
+            case 'CALL_ANSWERED': {
+              // Stop ringing
+              if (stopRingRef.current) {
+                stopRingRef.current();
+                stopRingRef.current = null;
+              }
+              playConnectTone();
+
+              setActiveCall(prev => {
+                const base = prev || incomingCall;
+                if (!base) return null;
+                return {
+                  ...base,
+                  status: data.answeredBy === 'ai' ? 'connected_ai' : 'connected_user',
+                  answeredBy: data.answeredBy,
+                  transcript: [
+                    ...base.transcript,
+                    {
+                      speaker: 'system',
+                      text: data.answeredBy === 'ai' 
+                        ? 'Aegis Autonomous AI Receptionist answered the line.' 
+                        : 'Human Operator connected to live call.',
+                      time: new Date().toLocaleTimeString()
+                    },
+                    ...(data.greeting ? [{
+                      speaker: 'ai' as const,
+                      text: data.greeting,
+                      time: new Date().toLocaleTimeString()
+                    }] : [])
+                  ]
+                };
+              });
+
+              setIncomingCall(null);
+
+              // If AI spoke greeting, synthesize speech
+              if (data.greeting) {
+                speakAiResponse(data.greeting);
+              }
+              break;
+            }
+
+            case 'AI_SPEECH': {
+              const text = data.text;
+              setActiveCall(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  transcript: [
+                    ...prev.transcript,
+                    {
+                      speaker: 'ai',
+                      text,
+                      time: new Date().toLocaleTimeString()
+                    }
+                  ]
+                };
+              });
+              // Synthesize voice
+              speakAiResponse(text);
+              break;
+            }
+
+            case 'OPERATOR_SPEECH': {
+              const text = data.text;
+              setActiveCall(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  transcript: [
+                    ...prev.transcript,
+                    {
+                      speaker: 'operator',
+                      text,
+                      time: new Date().toLocaleTimeString()
+                    }
+                  ]
+                };
+              });
+              break;
+            }
+
+            case 'TRANSCRIPT_UPDATE': {
+              setActiveCall(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  transcript: [
+                    ...prev.transcript,
+                    {
+                      speaker: data.speaker,
+                      text: data.text,
+                      time: new Date().toLocaleTimeString()
+                    }
+                  ]
+                };
+              });
+              break;
+            }
+
+            case 'CALL_TAKEN_OVER': {
+              setActiveCall(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  status: 'connected_user',
+                  answeredBy: 'human',
+                  transcript: [
+                    ...prev.transcript,
+                    {
+                      speaker: 'system',
+                      text: 'Human Operator took over call from AI receptionist.',
+                      time: new Date().toLocaleTimeString()
+                    }
+                  ]
+                };
+              });
+              stopSpeech();
+              break;
+            }
+
+            case 'CALL_HELD': {
+              setActiveCall(prev => prev ? { ...prev, status: 'on_hold' } : null);
+              break;
+            }
+
+            case 'CALL_UNHELD': {
+              setActiveCall(prev => prev ? { ...prev, status: data.status } : null);
+              break;
+            }
+
+            case 'CALL_ENDED': {
+              handleTerminateCall(false);
+              break;
+            }
+          }
+        } catch (e) {
+          console.error('Error handling telephony WebSocket message:', e);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn('Telephony WebSocket warning:', err);
+      };
+    } catch (e) {
+      console.warn('Telephony WebSocket connection error:', e);
     }
 
-    setActiveCall(null);
+    return () => {
+      if (stopRingRef.current) {
+        stopRingRef.current();
+      }
+      stopSpeech();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
+
+  // Duration Timer for active call
+  useEffect(() => {
+    if (activeCall && (activeCall.status === 'connected_user' || activeCall.status === 'connected_ai' || activeCall.status === 'on_hold')) {
+      timerRef.current = window.setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [activeCall?.status]);
+
+  // Keypad Touch Tones
+  const handleKeyPress = (digit: string) => {
+    playDtmfTone(digit);
+    if (dialedNumber.length < 18) {
+      setDialedNumber(prev => prev + digit);
+    }
+  };
+
+  // 1. Answer Call Personally (Operator / Human)
+  const handleAnswerPersonally = () => {
+    if (!incomingCall) return;
+
+    if (stopRingRef.current) {
+      stopRingRef.current();
+      stopRingRef.current = null;
+    }
+
+    playConnectTone();
+
+    const answeredCall: ActiveCallState = {
+      ...incomingCall,
+      status: 'connected_user',
+      answeredBy: 'human',
+      transcript: [
+        ...incomingCall.transcript,
+        {
+          speaker: 'system',
+          text: 'Operator answered call on console.',
+          time: new Date().toLocaleTimeString()
+        }
+      ]
+    };
+
+    setActiveCall(answeredCall);
+    setIncomingCall(null);
     setCallDuration(0);
+
+    // Notify server over WebSocket
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'ANSWER_CALL',
+        callId: answeredCall.id
+      }));
+    }
+  };
+
+  // 2. Dispatch AI Receptionist to Answer Call
+  const handleDispatchAiAnswer = () => {
+    if (!incomingCall) return;
+
+    if (stopRingRef.current) {
+      stopRingRef.current();
+      stopRingRef.current = null;
+    }
+
+    playConnectTone();
+
+    const greeting = `Thank you for calling ${orgName || 'RCOS Enterprise Solutions'}. My name is Aegis, your AI receptionist. How may I assist you today?`;
+
+    const aiCall: ActiveCallState = {
+      ...incomingCall,
+      status: 'connected_ai',
+      answeredBy: 'ai',
+      transcript: [
+        ...incomingCall.transcript,
+        {
+          speaker: 'system',
+          text: 'Aegis Autonomous AI Receptionist connected.',
+          time: new Date().toLocaleTimeString()
+        },
+        {
+          speaker: 'ai',
+          text: greeting,
+          time: new Date().toLocaleTimeString()
+        }
+      ]
+    };
+
+    setActiveCall(aiCall);
+    setIncomingCall(null);
+    setCallDuration(0);
+
+    speakAiResponse(greeting);
+
+    // Notify server
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'AI_ANSWER_CALL',
+        callId: aiCall.id
+      }));
+    }
+  };
+
+  // 3. Take Over Call from AI (Barge In)
+  const handleTakeOverCall = () => {
+    if (!activeCall) return;
+    stopSpeech();
+
+    setActiveCall(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        status: 'connected_user',
+        answeredBy: 'human',
+        transcript: [
+          ...prev.transcript,
+          {
+            speaker: 'system',
+            text: 'Operator barged in and took over call.',
+            time: new Date().toLocaleTimeString()
+          }
+        ]
+      };
+    });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'TAKE_OVER_CALL',
+        callId: activeCall.id
+      }));
+    }
+  };
+
+  // 4. Hand Back to AI
+  const handleHandBackToAi = () => {
+    if (!activeCall) return;
+
+    setActiveCall(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        status: 'connected_ai',
+        answeredBy: 'ai',
+        transcript: [
+          ...prev.transcript,
+          {
+            speaker: 'system',
+            text: 'Call handed back to Aegis AI Receptionist.',
+            time: new Date().toLocaleTimeString()
+          }
+        ]
+      };
+    });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'AI_ANSWER_CALL',
+        callId: activeCall.id
+      }));
+    }
+  };
+
+  // 5. Send Operator Whisper to AI
+  const handleSendWhisper = () => {
+    if (!whisperInput.trim() || !activeCall) return;
+    const directive = whisperInput.trim();
+
+    setActiveCall(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        whisperDirectives: [...prev.whisperDirectives, directive],
+        transcript: [
+          ...prev.transcript,
+          {
+            speaker: 'system',
+            text: `[Private Operator Directive to AI]: "${directive}"`,
+            time: new Date().toLocaleTimeString()
+          }
+        ]
+      };
+    });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'WHISPER_DIRECTIVE',
+        callId: activeCall.id,
+        directive
+      }));
+    }
+
+    setWhisperInput('');
+  };
+
+  // 6. Operator Speaks / Sends Text to Caller
+  const handleOperatorSendSpeech = (textToSend?: string) => {
+    const text = (textToSend || operatorSpeechInput).trim();
+    if (!text || !activeCall) return;
+
+    setActiveCall(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        transcript: [
+          ...prev.transcript,
+          {
+            speaker: 'operator',
+            text,
+            time: new Date().toLocaleTimeString()
+          }
+        ]
+      };
+    });
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'OPERATOR_SPEECH',
+        callId: activeCall.id,
+        text
+      }));
+    }
+
+    setOperatorSpeechInput('');
+  };
+
+  // 7. Toggle Hold
+  const handleToggleHold = () => {
+    if (!activeCall) return;
+
+    if (activeCall.status === 'on_hold') {
+      const nextStatus = activeCall.answeredBy === 'ai' ? 'connected_ai' : 'connected_user';
+      setActiveCall(prev => prev ? { ...prev, status: nextStatus } : null);
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'UNHOLD_CALL', callId: activeCall.id }));
+      }
+    } else {
+      setActiveCall(prev => prev ? { ...prev, status: 'on_hold' } : null);
+      stopSpeech();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'HOLD_CALL', callId: activeCall.id }));
+      }
+    }
+  };
+
+  // 8. Terminate / End Call & Trigger AI Summary
+  const handleTerminateCall = async (notifyServer = true) => {
+    if (stopRingRef.current) {
+      stopRingRef.current();
+      stopRingRef.current = null;
+    }
+    stopSpeech();
+    playDisconnectTone();
+
+    const currentCall = activeCall || incomingCall;
+    if (!currentCall) {
+      setActiveCall(null);
+      setIncomingCall(null);
+      return;
+    }
+
+    if (notifyServer && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'END_CALL',
+        callId: currentCall.id
+      }));
+    }
+
+    const minutes = Math.floor(callDuration / 60);
+    const seconds = callDuration % 60;
+    const formattedDuration = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+    setIsSummarizing(true);
+
+    try {
+      // Request AI summarization from backend
+      const res = await fetch('/api/telephony/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callId: currentCall.id,
+          transcript: currentCall.transcript
+        })
+      });
+
+      const summaryData = await res.json();
+
+      const completedRecord: CallRecord = {
+        id: currentCall.id,
+        callerName: currentCall.callerName,
+        company: currentCall.company,
+        phoneNumber: currentCall.phoneNumber,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        duration: formattedDuration,
+        sentiment: summaryData.sentiment || 'Neutral',
+        summary: summaryData.summary || `Call with ${currentCall.callerName} ended. Duration: ${formattedDuration}.`,
+        agentRoutedTo: currentCall.answeredBy === 'ai' ? 'Aegis AI Receptionist' : 'Human Operator',
+        status: 'Completed',
+        answeredBy: currentCall.answeredBy || 'ai',
+        transcript: currentCall.transcript,
+        actionItems: summaryData.actionItems || [],
+        audioDurationSec: callDuration
+      };
+
+      onLogCall(completedRecord);
+
+      // Offer to auto-create job if suggested
+      if (summaryData.suggestedJob && onCreateJobFromCall) {
+        // user can click to convert from logs
+      }
+    } catch (err) {
+      console.warn('Call summarization fallback:', err);
+      const fallbackRecord: CallRecord = {
+        id: currentCall.id,
+        callerName: currentCall.callerName,
+        company: currentCall.company,
+        phoneNumber: currentCall.phoneNumber,
+        timestamp: 'Just now',
+        duration: formattedDuration,
+        sentiment: 'Neutral',
+        summary: `Call completed with ${currentCall.callerName}. Handled by ${currentCall.answeredBy || 'System'}.`,
+        agentRoutedTo: 'VoIP Telephony Engine',
+        status: 'Completed',
+        answeredBy: currentCall.answeredBy || 'ai',
+        transcript: currentCall.transcript,
+        actionItems: ['Follow up with customer inquiry']
+      };
+      onLogCall(fallbackRecord);
+    } finally {
+      setIsSummarizing(false);
+      setActiveCall(null);
+      setIncomingCall(null);
+      setCallDuration(0);
+      setCustomerCallState('ended');
+    }
+  };
+
+  // 9. Outbound Dialing (from Keypad)
+  const handleDialOutbound = async (dispatchAi = false) => {
+    if (!dialedNumber.trim()) return;
+
+    try {
+      const res = await fetch('/api/telephony/outbound', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: dialedNumber,
+          callerName: outboundCallerName,
+          dispatchAi,
+          purpose: 'Executive Direct Telephony Call'
+        })
+      });
+
+      const data = await res.json();
+      if (data.call) {
+        playConnectTone();
+        setActiveCall({
+          ...data.call,
+          status: dispatchAi ? 'connected_ai' : 'connected_user',
+          answeredBy: dispatchAi ? 'ai' : 'human'
+        });
+        setCallDuration(0);
+
+        if (dispatchAi) {
+          const greeting = `Hello, this is Aegis calling on behalf of ${orgName || 'RCOS Enterprise Solutions'}. How can we support your team today?`;
+          speakAiResponse(greeting);
+        }
+      }
+    } catch (e) {
+      console.error('Outbound dial error:', e);
+    }
+  };
+
+  // 10. Customer Portal: Simulate Customer Calling the Business Line
+  const handleCustomerDialBusiness = async () => {
+    setCustomerCallState('calling');
+    setIsCustomerCalling(true);
+
+    try {
+      const res = await fetch('/api/telephony/incoming', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: customerNumber,
+          callerName: customerName,
+          company: customerCompany,
+          issueSummary: customerIssuePreset
+        })
+      });
+
+      const data = await res.json();
+      if (data.call) {
+        setCustomerCallState('calling');
+      }
+    } catch (e) {
+      console.error('Customer call simulation error:', e);
+    }
+  };
+
+  // 11. Customer Speaks in Customer Portal
+  const handleCustomerSpeak = async () => {
+    if (!customerSpeechInput.trim() || !activeCall) return;
+    const text = customerSpeechInput.trim();
+
+    // Append to transcript
+    setActiveCall(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        transcript: [
+          ...prev.transcript,
+          {
+            speaker: 'customer',
+            text,
+            time: new Date().toLocaleTimeString()
+          }
+        ]
+      };
+    });
+
+    setCustomerSpeechInput('');
+
+    // If AI is handling call, trigger AI response
+    if (activeCall.status === 'connected_ai') {
+      try {
+        const res = await fetch('/api/telephony/ai-respond', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            callId: activeCall.id,
+            customerText: text,
+            conversationHistory: activeCall.transcript,
+            whisperDirectives: activeCall.whisperDirectives
+          })
+        });
+
+        const data = await res.json();
+        if (data.aiText) {
+          speakAiResponse(data.aiText);
+        }
+      } catch (err) {
+        console.error('Error generating AI response for customer:', err);
+      }
+    } else {
+      // Handled by operator; send message over WebSocket
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'CUSTOMER_SPEECH',
+          callId: activeCall.id,
+          text
+        }));
+      }
+    }
+  };
+
+  // Copy Webhook URL
+  const handleCopyWebhook = () => {
+    const webhookUrl = `${window.location.origin}/api/telephony/incoming`;
+    navigator.clipboard.writeText(webhookUrl);
+    setHasCopiedWebhook(true);
+    setTimeout(() => setHasCopiedWebhook(false), 2000);
   };
 
   const formatTimer = (seconds: number) => {
@@ -99,186 +777,950 @@ export const PhoneView: React.FC<PhoneViewProps> = ({ calls, onLogCall, orgName 
   };
 
   return (
-    <div id="phone-view-container" className="space-y-4 max-w-5xl mx-auto pb-20">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <PhoneCall className="w-5 h-5 text-[#76d418]" />
-            <span>VoIP Telephony & Call System</span>
-          </h1>
-          <p className="text-xs text-slate-400">
-            Autonomous SIP trunk answering, live speech-to-text, and outbound direct dialer
-          </p>
+    <div id="telephony-root" className="space-y-6 max-w-6xl mx-auto pb-24 animate-in fade-in duration-200">
+      
+      {/* 1. Header & Live Telephony Telemetry */}
+      <div className="bg-[#091016] border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#76d418]/15 border border-[#76d418]/30 flex items-center justify-center text-[#76d418] shadow-sm shadow-[#76d418]/20">
+                <PhoneCall className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  <span>VoIP Telephony & Dual Answering Switchboard</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-mono bg-[#76d418]/15 text-[#76d418] border border-[#76d418]/40">
+                    SIP GATEWAY ACTIVE
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-400">
+                  Direct phone line with autonomous Gemini AI Receptionist or human executive pickup
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Line Stats */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
+              <span className="text-slate-400 text-xs">Direct Inbound DID:</span>
+              <span className="font-mono text-xs font-bold text-white tracking-wider">+1 (888) 550-RCOS</span>
+            </div>
+
+            <button
+              onClick={handleCopyWebhook}
+              className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Copy Twilio/SIP Webhook URL"
+            >
+              {hasCopiedWebhook ? <Check className="w-3.5 h-3.5 text-[#76d418]" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+              <span>{hasCopiedWebhook ? 'Copied' : 'Webhook URL'}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#76d418]/15 border border-[#76d418]/40 text-[#76d418] text-xs font-semibold">
-            <span className="w-2 h-2 rounded-full bg-[#76d418] animate-pulse" />
-            <span>SIP Trunk Connected</span>
-          </div>
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 pt-4 mt-4 border-t border-slate-800/80">
+          <button
+            onClick={() => setActiveSubTab('switchboard')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'switchboard'
+                ? 'bg-[#76d418] text-slate-950 shadow-md shadow-[#76d418]/20'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            <span>Operator Switchboard</span>
+            {incomingCall && (
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('customer_portal')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'customer_portal'
+                ? 'bg-[#76d418] text-slate-950 shadow-md shadow-[#76d418]/20'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <User className="w-3.5 h-3.5" />
+            <span>Customer Caller Line (Simulator & Testing)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('logs')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'logs'
+                ? 'bg-[#76d418] text-slate-950 shadow-md shadow-[#76d418]/20'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Call Logs & Intelligence ({calls.length})</span>
+          </button>
         </div>
       </div>
 
-      {/* Grid: Dialer Column + Stream Column */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Interactive Dialer (1 col) */}
-        <div className="bg-[#091016] border border-slate-800 rounded-2xl p-5 flex flex-col items-center justify-between space-y-4 shadow-xl">
-          <div className="w-full">
-            <div className="text-xs font-semibold text-slate-400 mb-1.5 flex items-center justify-between">
-              <span>Target Phone Line</span>
-              <span className="text-[#76d418] font-mono text-[11px]">DID Active</span>
+      {/* 2. INCOMING CALL BANNER (Rings if someone calls) */}
+      {incomingCall && !activeCall && (
+        <div 
+          id="incoming-call-alert" 
+          className="bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/80 border-2 border-amber-500/80 rounded-2xl p-5 shadow-2xl animate-pulse"
+        >
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-center md:text-left">
+              <div className="w-14 h-14 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 animate-bounce">
+                <PhoneIncoming className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 justify-center md:justify-start">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40">
+                    Live Inbound Call Ringing
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">DID Line 1</span>
+                </div>
+                <h3 className="text-lg font-bold text-white mt-1">
+                  {incomingCall.callerName} <span className="text-sm font-normal text-slate-300">({incomingCall.company})</span>
+                </h3>
+                <p className="text-xs font-mono text-slate-400">{incomingCall.phoneNumber}</p>
+              </div>
             </div>
 
-            {/* Dialed Number Display */}
-            <div className="w-full h-12 bg-[#060a08] border border-slate-700/80 rounded-xl px-4 flex items-center justify-between text-lg font-mono text-white tracking-widest overflow-hidden">
-              <span className="truncate">{dialedNumber || 'Enter number...'}</span>
-              {dialedNumber && (
-                <button
-                  onClick={() => setDialedNumber('')}
-                  className="text-slate-500 hover:text-slate-300 text-xs font-sans ml-2"
-                >
-                  Clear
-                </button>
-              )}
+            {/* Answer Choice Buttons */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleAnswerPersonally}
+                className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-900/40 transition-transform active:scale-95 cursor-pointer"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Answer Personally (Human)</span>
+              </button>
+
+              <button
+                onClick={handleDispatchAiAnswer}
+                className="px-5 py-3 rounded-xl bg-[#76d418] hover:bg-[#66bd14] text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#76d418]/30 transition-transform active:scale-95 cursor-pointer"
+              >
+                <Bot className="w-4 h-4" />
+                <span>Let AI Answer (Aegis)</span>
+              </button>
+
+              <button
+                onClick={() => handleTerminateCall(true)}
+                className="p-3 rounded-xl bg-slate-800 hover:bg-rose-950 hover:text-rose-400 border border-slate-700 text-slate-400 transition-colors cursor-pointer"
+                title="Decline / Send to Voicemail"
+              >
+                <PhoneOff className="w-4 h-4" />
+              </button>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Active Call UI or Keypad */}
-          {activeCall ? (
-            <div className="w-full py-6 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 rounded-xl border border-[#76d418]/40 p-4 animate-in fade-in">
-              <div className="w-16 h-16 rounded-full bg-[#76d418]/20 border border-[#76d418] flex items-center justify-center text-[#76d418] animate-pulse">
-                <Volume2 className="w-8 h-8" />
+      {/* 3. ACTIVE CALL CONSOLE (If call is ongoing) */}
+      {activeCall && (
+        <div id="active-call-console" className="bg-[#091016] border-2 border-[#76d418]/60 rounded-2xl p-6 shadow-2xl space-y-5">
+          {/* Active Call Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-[#76d418]/20 border border-[#76d418] flex items-center justify-center text-[#76d418] animate-pulse">
+                <Volume2 className="w-6 h-6" />
               </div>
-
-              <div className="text-center">
-                <h4 className="text-sm font-bold text-white">{activeCall.phoneNumber}</h4>
-                <div className="text-lg font-mono text-[#76d418] font-bold mt-1">
-                  {formatTimer(callDuration)}
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#76d418] bg-[#76d418]/15 px-2 py-0.5 rounded-full border border-[#76d418]/40">
+                    Call In Progress
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {activeCall.status === 'connected_ai' ? 'Handled by Aegis AI Receptionist' : 'Connected to Human Operator'}
+                  </span>
                 </div>
-                <span className="text-[11px] text-slate-400">Autonomous VoIP Telephony Engine Streaming</span>
-              </div>
-
-              {/* Call Controls */}
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  onClick={() => setIsMuted(!isMuted)}
-                  className={`p-3 rounded-full border transition-colors cursor-pointer ${
-                    isMuted
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-400'
-                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-                  }`}
-                  title={isMuted ? 'Unmute' : 'Mute'}
-                >
-                  {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </button>
-                <button
-                  onClick={handleEndCall}
-                  className="px-6 py-3 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-rose-900/40"
-                >
-                  <PhoneOff className="w-4 h-4" />
-                  <span>End Call</span>
-                </button>
+                <h3 className="text-base font-bold text-white mt-0.5">
+                  {activeCall.callerName} <span className="text-xs text-slate-400 font-normal">({activeCall.company})</span>
+                </h3>
+                <span className="text-xs font-mono text-slate-400">{activeCall.phoneNumber}</span>
               </div>
             </div>
-          ) : (
-            <>
-              {/* Keypad Buttons */}
-              <div className="grid grid-cols-3 gap-3 w-full max-w-[260px]">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((digit) => (
-                  <button
-                    key={digit}
-                    onClick={() => handleKeypadPress(digit)}
-                    className="h-12 rounded-xl bg-[#060a08] border border-slate-800 hover:bg-slate-800 text-sm font-bold text-white transition-colors cursor-pointer flex flex-col items-center justify-center shadow-sm"
-                  >
-                    <span>{digit}</span>
-                  </button>
-                ))}
+
+            {/* Timer & Handler Pill */}
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-2xl font-mono font-bold text-white tracking-wider">
+                  {formatTimer(callDuration)}
+                </div>
+                <span className="text-[11px] text-slate-400">
+                  {activeCall.status === 'on_hold' ? 'Call on hold' : 'Two-way audio live'}
+                </span>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-between w-full max-w-[260px] pt-2">
-                <button
-                  onClick={handleBackspace}
-                  disabled={!dialedNumber}
-                  className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition-colors cursor-pointer"
-                  title="Backspace"
-                >
-                  <Delete className="w-4 h-4" />
-                </button>
+              <button
+                onClick={handleToggleHold}
+                className={`px-3 py-2 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  activeCall.status === 'on_hold'
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                }`}
+              >
+                {activeCall.status === 'on_hold' ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+                <span>{activeCall.status === 'on_hold' ? 'Resume' : 'Hold'}</span>
+              </button>
 
+              <button
+                onClick={() => handleTerminateCall(true)}
+                disabled={isSummarizing}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-lg shadow-rose-900/40 cursor-pointer"
+              >
+                <PhoneOff className="w-4 h-4" />
+                <span>{isSummarizing ? 'Summarizing...' : 'End Call'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Intervention & Supervision Bar */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
+            {/* Take Over / Barge In */}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+              <div className="flex items-center gap-2">
+                {activeCall.status === 'connected_ai' ? (
+                  <Bot className="w-4 h-4 text-cyan-400" />
+                ) : (
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                )}
+                <div>
+                  <span className="text-xs font-bold text-white block">
+                    {activeCall.status === 'connected_ai' ? 'Aegis Answering' : 'Operator Answering'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {activeCall.status === 'connected_ai' ? 'Gemini 3.5 Flash Voice' : 'Human Voice Channel'}
+                  </span>
+                </div>
+              </div>
+
+              {activeCall.status === 'connected_ai' ? (
                 <button
-                  onClick={handleStartCall}
-                  disabled={!dialedNumber.trim()}
-                  className="px-6 py-3 rounded-xl bg-[#76d418] hover:bg-[#66bd14] disabled:opacity-40 text-slate-950 text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-[#76d418]/25 cursor-pointer"
+                  onClick={handleTakeOverCall}
+                  className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold transition-colors cursor-pointer"
                 >
-                  <PhoneCall className="w-4 h-4" />
-                  <span>Dial Direct</span>
+                  Take Over (Barge In)
+                </button>
+              ) : (
+                <button
+                  onClick={handleHandBackToAi}
+                  className="px-3 py-1 rounded-lg bg-[#76d418] hover:bg-[#66bd14] text-slate-950 text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  Hand to AI
+                </button>
+              )}
+            </div>
+
+            {/* Secret Whisper to AI */}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#76d418]" />
+                <div>
+                  <span className="text-xs font-bold text-white block">Whisper Directive</span>
+                  <span className="text-[10px] text-slate-400">Guide AI response privately</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowWhisperBox(!showWhisperBox)}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                {showWhisperBox ? 'Hide Whisper' : 'Whisper'}
+              </button>
+            </div>
+
+            {/* Mic Toggle */}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+              <div className="flex items-center gap-2">
+                {isMuted ? <MicOff className="w-4 h-4 text-rose-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+                <div>
+                  <span className="text-xs font-bold text-white block">Operator Microphone</span>
+                  <span className="text-[10px] text-slate-400">{isMuted ? 'Muted' : 'Live Audio Ingest'}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  isMuted ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : 'bg-slate-800 text-slate-300 hover:text-white'
+                }`}
+              >
+                {isMuted ? 'Unmute' : 'Mute'}
+              </button>
+            </div>
+          </div>
+
+          {/* Whisper Drawer */}
+          {showWhisperBox && (
+            <div className="p-3 bg-slate-950 rounded-xl border border-[#76d418]/30 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#76d418] font-bold flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Private Operator Whisper (Caller cannot hear this)</span>
+                </span>
+                <span className="text-[10px] text-slate-400">Directs AI's next spoken sentence</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={whisperInput}
+                  onChange={(e) => setWhisperInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendWhisper()}
+                  placeholder="e.g. 'Offer them a 15% enterprise onboarding discount' or 'Schedule for 3pm'..."
+                  className="flex-1 h-9 bg-[#060a08] border border-slate-800 rounded-lg px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#76d418]"
+                />
+                <button
+                  onClick={handleSendWhisper}
+                  disabled={!whisperInput.trim()}
+                  className="h-9 px-4 rounded-lg bg-[#76d418] hover:bg-[#66bd14] disabled:opacity-40 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Send</span>
                 </button>
               </div>
-            </>
+            </div>
+          )}
+
+          {/* Live Audio Transcription Stream */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-[#76d418]" />
+                <span>Live Real-Time Call Transcription</span>
+              </span>
+              <span className="text-[11px] text-slate-500">Auto-transcribed stream</span>
+            </div>
+
+            <div className="h-64 overflow-y-auto bg-[#060a08] border border-slate-800 rounded-xl p-4 space-y-3 font-sans text-xs">
+              {activeCall.transcript.map((entry, idx) => (
+                <div 
+                  key={idx} 
+                  className={`flex flex-col ${
+                    entry.speaker === 'customer' 
+                      ? 'items-start' 
+                      : entry.speaker === 'operator' 
+                      ? 'items-end' 
+                      : entry.speaker === 'ai' 
+                      ? 'items-center text-center' 
+                      : 'items-center text-center'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-1">
+                    <span className="font-bold uppercase tracking-wider">
+                      {entry.speaker === 'customer' 
+                        ? activeCall.callerName 
+                        : entry.speaker === 'operator' 
+                        ? 'Operator (You)' 
+                        : entry.speaker === 'ai' 
+                        ? 'Aegis AI Receptionist' 
+                        : 'Telephony System'}
+                    </span>
+                    <span>•</span>
+                    <span>{entry.time || ''}</span>
+                  </div>
+
+                  <div className={`p-3 rounded-xl max-w-lg leading-relaxed ${
+                    entry.speaker === 'customer'
+                      ? 'bg-slate-900 border border-slate-800 text-slate-200'
+                      : entry.speaker === 'operator'
+                      ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-100'
+                      : entry.speaker === 'ai'
+                      ? 'bg-cyan-950/40 border border-cyan-500/30 text-cyan-100'
+                      : 'bg-amber-950/20 border border-amber-500/20 text-amber-300 font-mono text-[11px]'
+                  }`}>
+                    {entry.text}
+                  </div>
+                </div>
+              ))}
+              <div ref={transcriptEndRef} />
+            </div>
+          </div>
+
+          {/* Operator Direct Speak / Reply Input */}
+          <div className="flex items-center gap-2 pt-2">
+            <input
+              type="text"
+              value={operatorSpeechInput}
+              onChange={(e) => setOperatorSpeechInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleOperatorSendSpeech()}
+              placeholder={activeCall.status === 'connected_user' 
+                ? "Speak to customer (type message or speak via microphone)..." 
+                : "Type message as operator (or click 'Take Over' to speak directly)..."}
+              className="flex-1 h-10 bg-[#060a08] border border-slate-800 rounded-xl px-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#76d418]"
+            />
+
+            <button
+              onClick={() => handleOperatorSendSpeech()}
+              disabled={!operatorSpeechInput.trim()}
+              className="h-10 px-5 rounded-xl bg-[#76d418] hover:bg-[#66bd14] disabled:opacity-40 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Send Speech</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. SUB-TAB VIEWS: Switchboard / Customer Simulator / Logs */}
+      {activeSubTab === 'switchboard' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Keypad Dialer Column (1 col) */}
+          <div className="bg-[#091016] border border-slate-800 rounded-2xl p-5 flex flex-col items-center justify-between space-y-4 shadow-xl">
+            <div className="w-full">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-1.5">
+                <span>Target Phone Line</span>
+                <span className="text-[#76d418] font-mono text-[11px]">SIP Trunk Active</span>
+              </div>
+
+              {/* Number display */}
+              <div className="w-full h-12 bg-[#060a08] border border-slate-700/80 rounded-xl px-4 flex items-center justify-between text-base font-mono text-white tracking-widest overflow-hidden">
+                <span className="truncate">{dialedNumber || 'Enter number...'}</span>
+                {dialedNumber && (
+                  <button
+                    onClick={() => setDialedNumber('')}
+                    className="text-slate-500 hover:text-slate-300 text-xs font-sans ml-2 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-2">
+                <input
+                  type="text"
+                  value={outboundCallerName}
+                  onChange={(e) => setOutboundCallerName(e.target.value)}
+                  placeholder="Target Contact / Entity"
+                  className="w-full h-8 bg-[#060a08] border border-slate-800 rounded-lg px-2.5 text-[11px] text-slate-300 placeholder-slate-600 focus:outline-none focus:border-[#76d418]"
+                />
+              </div>
+            </div>
+
+            {/* Keypad Buttons with DTMF sound */}
+            <div className="grid grid-cols-3 gap-2.5 w-full max-w-[260px]">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((digit) => (
+                <button
+                  key={digit}
+                  onClick={() => handleKeyPress(digit)}
+                  className="h-12 rounded-xl bg-[#060a08] border border-slate-800 hover:bg-slate-800 active:scale-95 text-sm font-bold text-white transition-all cursor-pointer flex flex-col items-center justify-center shadow-sm"
+                >
+                  <span>{digit}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Dial Action Buttons */}
+            <div className="w-full max-w-[260px] space-y-2 pt-1">
+              <button
+                onClick={() => handleDialOutbound(false)}
+                disabled={!dialedNumber.trim() || Boolean(activeCall)}
+                className="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-900/20 cursor-pointer"
+              >
+                <PhoneCall className="w-4 h-4" />
+                <span>Call Direct (Operator)</span>
+              </button>
+
+              <button
+                onClick={() => handleDialOutbound(true)}
+                disabled={!dialedNumber.trim() || Boolean(activeCall)}
+                className="w-full h-11 rounded-xl bg-[#76d418] hover:bg-[#66bd14] disabled:opacity-40 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-[#76d418]/25 cursor-pointer"
+              >
+                <Bot className="w-4 h-4" />
+                <span>Dispatch AI Calling Agent</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Switchboard Management & Quick Call Simulator (2 cols) */}
+          <div className="lg:col-span-2 space-y-5">
+            {/* Quick Inbound Trigger */}
+            <div className="bg-[#091016] border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <PhoneIncoming className="w-4 h-4 text-[#76d418]" />
+                    <span>Inbound Telephony Dispatch Test</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Test customer inbound calls to verify either human answering or AI receptionist responses
+                  </p>
+                </div>
+                <span className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 font-mono">
+                  Line 1 Ready
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  onClick={() => {
+                    setIncomingCall({
+                      id: `call-${Date.now()}`,
+                      callerName: 'Sarah Jenkins',
+                      phoneNumber: '+1 (415) 890-4321',
+                      company: 'Apex Technologies',
+                      status: 'ringing',
+                      answeredBy: null,
+                      startTime: Date.now(),
+                      transcript: [
+                        { speaker: 'system', text: 'Call initiated by Sarah Jenkins (Apex Tech) regarding urgent database failover.', time: new Date().toLocaleTimeString() }
+                      ],
+                      whisperDirectives: []
+                    });
+                    if (!stopRingRef.current) stopRingRef.current = playPhoneRing();
+                  }}
+                  className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 hover:border-amber-500/60 text-left transition-all cursor-pointer group"
+                >
+                  <span className="text-[10px] font-bold uppercase text-amber-400 block mb-1">Urgent Inbound</span>
+                  <h4 className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                    Sarah Jenkins
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Apex Technologies • Server Outage</p>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIncomingCall({
+                      id: `call-${Date.now()}`,
+                      callerName: 'David Sterling',
+                      phoneNumber: '+1 (212) 456-7890',
+                      company: 'Sterling Capital Group',
+                      status: 'ringing',
+                      answeredBy: null,
+                      startTime: Date.now(),
+                      transcript: [
+                        { speaker: 'system', text: 'Call initiated by David Sterling requesting enterprise multi-agent fleet quote.', time: new Date().toLocaleTimeString() }
+                      ],
+                      whisperDirectives: []
+                    });
+                    if (!stopRingRef.current) stopRingRef.current = playPhoneRing();
+                  }}
+                  className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 hover:border-[#76d418]/60 text-left transition-all cursor-pointer group"
+                >
+                  <span className="text-[10px] font-bold uppercase text-[#76d418] block mb-1">Enterprise Sales</span>
+                  <h4 className="text-xs font-bold text-white group-hover:text-[#76d418] transition-colors">
+                    David Sterling
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Sterling Capital • Enterprise Quote</p>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIncomingCall({
+                      id: `call-${Date.now()}`,
+                      callerName: 'Elena Rostova',
+                      phoneNumber: '+1 (310) 902-1144',
+                      company: 'Rostova Global Logistics',
+                      status: 'ringing',
+                      answeredBy: null,
+                      startTime: Date.now(),
+                      transcript: [
+                        { speaker: 'system', text: 'Call initiated by Elena Rostova inquiring about agent workflow integration.', time: new Date().toLocaleTimeString() }
+                      ],
+                      whisperDirectives: []
+                    });
+                    if (!stopRingRef.current) stopRingRef.current = playPhoneRing();
+                  }}
+                  className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 hover:border-cyan-500/60 text-left transition-all cursor-pointer group"
+                >
+                  <span className="text-[10px] font-bold uppercase text-cyan-400 block mb-1">Operations Query</span>
+                  <h4 className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors">
+                    Elena Rostova
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Rostova Global • Workflow API</p>
+                </button>
+              </div>
+            </div>
+
+            {/* Telephony SIP & Webhook Integration Specs */}
+            <div className="bg-[#091016] border border-slate-800 rounded-2xl p-5 space-y-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-[#76d418]" />
+                <span>Twilio / Carrier SIP Trunk Integration Details</span>
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 space-y-1.5">
+                  <span className="text-slate-400 font-semibold block text-[11px]">Inbound Voice Webhook</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-slate-200 truncate">{window.location.origin}/api/telephony/incoming</span>
+                    <button
+                      onClick={handleCopyWebhook}
+                      className="text-[#76d418] hover:text-white p-1"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">Attach to Twilio Console phone number under "Voice & Fax &gt; A Call Comes In"</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 space-y-1.5">
+                  <span className="text-slate-400 font-semibold block text-[11px]">AI Receptionist Persona</span>
+                  <div className="flex items-center gap-2">
+                    <Bot className="w-4 h-4 text-[#76d418]" />
+                    <span className="text-slate-200 font-bold">Aegis Executive Receptionist</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">Powered by Gemini 3.5 Flash server-side with natural conversational voice</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. SUB-TAB: CUSTOMER CALLER LINE PORTAL (Simulator) */}
+      {activeSubTab === 'customer_portal' && (
+        <div className="bg-[#091016] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Headphones className="w-5 h-5 text-[#76d418]" />
+                <span>Customer Calling Experience Simulator</span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Experience what your customers hear when they dial your business number. Speak or type to converse with your AI Receptionist or human operator.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 font-mono">Dialing:</span>
+              <span className="px-3 py-1 rounded-full bg-[#76d418]/15 border border-[#76d418]/40 text-[#76d418] text-xs font-mono font-bold">
+                +1 (888) 550-RCOS
+              </span>
+            </div>
+          </div>
+
+          {/* Customer Setup Form */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-400 mb-1 block">Your Name (Customer)</label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full h-10 bg-[#060a08] border border-slate-800 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-[#76d418]"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-400 mb-1 block">Company / Organization</label>
+              <input
+                type="text"
+                value={customerCompany}
+                onChange={(e) => setCustomerCompany(e.target.value)}
+                className="w-full h-10 bg-[#060a08] border border-slate-800 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-[#76d418]"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-400 mb-1 block">Caller Phone Number</label>
+              <input
+                type="text"
+                value={customerNumber}
+                onChange={(e) => setCustomerNumber(e.target.value)}
+                className="w-full h-10 bg-[#060a08] border border-slate-800 rounded-xl px-3 text-xs text-white focus:outline-none focus:border-[#76d418]"
+              />
+            </div>
+          </div>
+
+          {/* Call Trigger Button */}
+          <div className="flex items-center justify-between p-4 bg-[#060a08] border border-slate-800 rounded-xl">
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-bold text-white">Place Call to {orgName || 'RCOS Enterprise'} Line</h4>
+              <p className="text-[11px] text-slate-400">
+                This triggers the switchboard telephone ring. You or Aegis AI can answer.
+              </p>
+            </div>
+
+            {!activeCall ? (
+              <button
+                onClick={handleCustomerDialBusiness}
+                className="px-6 py-2.5 rounded-xl bg-[#76d418] hover:bg-[#66bd14] text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#76d418]/25 transition-all cursor-pointer"
+              >
+                <PhoneCall className="w-4 h-4" />
+                <span>Dial Business Line</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-[#76d418] font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#76d418] animate-ping" />
+                  <span>Call Connected ({activeCall.answeredBy === 'ai' ? 'Aegis AI' : 'Human Operator'})</span>
+                </span>
+                <button
+                  onClick={() => handleTerminateCall(true)}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <PhoneOff className="w-3.5 h-3.5" />
+                  <span>Hang Up</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Interactive Customer Voice / Speech Console */}
+          {activeCall && (
+            <div className="p-5 bg-slate-950 rounded-2xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-white flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-[#76d418]" />
+                  <span>Customer Audio Channel</span>
+                </span>
+                <span className="text-slate-400 font-mono">
+                  {activeCall.answeredBy === 'ai' ? 'Talking with Aegis AI Receptionist' : 'Talking with Operator'}
+                </span>
+              </div>
+
+              {/* Speech input */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={customerSpeechInput}
+                  onChange={(e) => setCustomerSpeechInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCustomerSpeak()}
+                  placeholder="Speak or type what you would say as a customer (e.g., 'Hello, I need to schedule a meeting with your technical team')..."
+                  className="flex-1 h-11 bg-[#060a08] border border-slate-800 rounded-xl px-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#76d418]"
+                />
+
+                <button
+                  onClick={handleCustomerSpeak}
+                  disabled={!customerSpeechInput.trim()}
+                  className="h-11 px-6 rounded-xl bg-[#76d418] hover:bg-[#66bd14] disabled:opacity-40 text-slate-950 text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Speak</span>
+                </button>
+              </div>
+
+              {/* Quick Customer Prompts */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-[11px] text-slate-400">Quick speech prompts:</span>
+                {[
+                  "Can I speak with a human operator?",
+                  "What services does RCOS provide?",
+                  "We have an urgent database deployment incident.",
+                  "Can you send me an enterprise quote?"
+                ].map((prompt, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setCustomerSpeechInput(prompt);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 transition-colors cursor-pointer"
+                  >
+                    "{prompt}"
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
+      )}
 
-        {/* Call Records & Telephony Stream (2 cols) */}
-        <div className="lg:col-span-2 bg-[#091016] border border-slate-800 rounded-2xl p-5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+      {/* 6. SUB-TAB: CALL LOGS & AI INTELLIGENCE */}
+      {activeSubTab === 'logs' && (
+        <div className="bg-[#091016] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
             <div>
-              <h3 className="text-sm font-bold text-white">SIP Call Logs & AI Audio Transcriptions</h3>
-              <p className="text-xs text-slate-400">Automated intake logs with sentiment scoring and transcriptions</p>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[#76d418]" />
+                <span>Call Logs, Transcripts & AI Action Item Extraction</span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Every call is automatically logged, sentiment scored, transcribed, and summarized by Gemini
+              </p>
             </div>
-            <span className="text-xs font-mono text-slate-400">{calls.length} Total Calls</span>
+            <span className="text-xs font-mono text-slate-400 bg-slate-900 px-3 py-1 rounded-full border border-slate-800">
+              {calls.length} Total Records
+            </span>
           </div>
 
           {calls.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-center p-6 text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl space-y-2">
               <Phone className="w-6 h-6 text-slate-600" />
-              <p className="text-slate-400 font-medium">No recorded calls in history.</p>
-              <p className="text-[11px] text-slate-500 max-w-xs">
-                Use the keypad dialer to simulate an inbound or outbound call handled by the autonomous VoIP engine.
+              <p className="text-slate-400 font-medium">No recorded calls yet.</p>
+              <p className="text-[11px] text-slate-500 max-w-sm">
+                Use the Switchboard or Customer Simulator to place or answer a call. All transcripts and action items will be stored here.
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3.5">
               {calls.map((call) => (
                 <div
                   key={call.id}
-                  id={`call-card-${call.id}`}
-                  className="p-4 rounded-xl bg-[#060a08] border border-slate-800 space-y-2.5"
+                  id={`call-log-${call.id}`}
+                  className="p-4 rounded-xl bg-[#060a08] border border-slate-800 hover:border-slate-700 transition-colors space-y-3"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-slate-800 text-[#76d418] flex items-center justify-center font-bold text-xs border border-slate-700">
-                        <Phone className="w-4 h-4" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs border ${
+                        call.answeredBy === 'human'
+                          ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400'
+                          : 'bg-cyan-950/60 border-cyan-500/40 text-cyan-400'
+                      }`}>
+                        {call.answeredBy === 'human' ? <UserCheck className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                       </div>
                       <div>
-                        <h4 className="text-xs font-bold text-white">{call.callerName}</h4>
-                        <span className="text-[11px] text-slate-400">{call.phoneNumber}</span>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-white">{call.callerName}</h4>
+                          <span className="text-[11px] text-slate-400 font-normal">({call.company})</span>
+                          <span className={`text-[10px] px-2 py-0.2 rounded-full font-bold uppercase ${
+                            call.sentiment === 'Positive'
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              : call.sentiment === 'Action Required'
+                              ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                              : 'bg-slate-800 text-slate-300 border border-slate-700'
+                          }`}>
+                            {call.sentiment}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono text-slate-400">{call.phoneNumber}</span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-[#76d418]/15 text-[#76d418] border border-[#76d418]/30">
-                        {call.sentiment}
-                      </span>
                       <span className="text-xs font-mono text-slate-400">{call.duration}</span>
+                      <span className="text-xs text-slate-500">•</span>
+                      <span className="text-xs text-slate-400">{call.timestamp}</span>
+
+                      {onDeleteCall && (
+                        <button
+                          onClick={() => onDeleteCall(call.id)}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors ml-2 cursor-pointer"
+                          title="Delete Call"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-300 leading-relaxed pl-10">
+                  {/* Summary */}
+                  <p className="text-xs text-slate-300 leading-relaxed pl-12">
                     {call.summary}
                   </p>
 
-                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500 pl-10">
-                    <span>Timestamp: <strong className="text-slate-400">{call.timestamp}</strong></span>
-                    <span>Engine: <strong className="text-[#76d418]">{call.agentRoutedTo}</strong></span>
+                  {/* Action items extracted by Gemini */}
+                  {call.actionItems && call.actionItems.length > 0 && (
+                    <div className="pl-12 pt-1 flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase text-slate-400">Action Items:</span>
+                      {call.actionItems.map((item, idx) => (
+                        <span 
+                          key={idx} 
+                          className="text-[11px] px-2.5 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3 h-3 text-[#76d418]" />
+                          <span>{item}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Bottom Footer: Transcript View & Create Job */}
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 pl-12">
+                    <span>Handled By: <strong className="text-white">{call.agentRoutedTo}</strong></span>
+
+                    <div className="flex items-center gap-2">
+                      {onCreateJobFromCall && (
+                        <button
+                          onClick={() => onCreateJobFromCall({
+                            title: `Follow Up: ${call.callerName} (${call.company})`,
+                            summary: call.summary,
+                            priority: call.sentiment === 'Action Required' ? 'Urgent' : 'High',
+                            status: 'In Progress'
+                          })}
+                          className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[#76d418] hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          <span>Convert to RCOS Job</span>
+                        </button>
+                      )}
+
+                      {call.transcript && call.transcript.length > 0 && (
+                        <button
+                          onClick={() => setSelectedCallDetails(call)}
+                          className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>View Full Transcript</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {/* 7. MODAL: Full Call Transcript Viewer */}
+      {selectedCallDetails && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#091016] border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-white">Call Transcript Record</h3>
+                <span className="text-xs text-slate-400">
+                  {selectedCallDetails.callerName} • {selectedCallDetails.phoneNumber} • {selectedCallDetails.duration}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedCallDetails(null)}
+                className="text-slate-400 hover:text-white text-xs font-semibold p-1"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 p-3 bg-[#060a08] border border-slate-800 rounded-xl">
+              {selectedCallDetails.transcript && selectedCallDetails.transcript.length > 0 ? (
+                selectedCallDetails.transcript.map((item, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                      <span className="font-bold uppercase tracking-wider text-slate-400">
+                        {item.speaker === 'customer' 
+                          ? selectedCallDetails.callerName 
+                          : item.speaker === 'operator' 
+                          ? 'Operator' 
+                          : item.speaker === 'ai' 
+                          ? 'Aegis AI' 
+                          : 'System'}
+                      </span>
+                      <span>•</span>
+                      <span>{item.time || ''}</span>
+                    </div>
+                    <div className={`p-2.5 rounded-lg text-xs ${
+                      item.speaker === 'customer'
+                        ? 'bg-slate-900 text-slate-200'
+                        : item.speaker === 'operator'
+                        ? 'bg-emerald-950/40 text-emerald-200 border border-emerald-500/20'
+                        : item.speaker === 'ai'
+                        ? 'bg-cyan-950/40 text-cyan-200 border border-cyan-500/20'
+                        : 'bg-slate-950 text-slate-400 font-mono text-[11px]'
+                    }`}>
+                      {item.text}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500 text-center py-6">No transcript lines recorded.</p>
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setSelectedCallDetails(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

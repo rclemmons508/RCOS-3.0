@@ -56,5 +56,23 @@ service cloud.firestore {
       allow update: if isSignedIn() && isValidId(documentId);
       allow delete: if isSignedIn() && isValidId(documentId) && existing().ownerId == request.auth.uid;
     }
+
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /jobs/{jobId} {
+      allow read, list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(jobId) && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(jobId) && existing().ownerId == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(jobId) && existing().ownerId == request.auth.uid;
+    }
+
+    match /calls/{callId} {
+      allow read, list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(callId) && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(callId) && existing().ownerId == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(callId) && existing().ownerId == request.auth.uid;
+    }
   }
 }

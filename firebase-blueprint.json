@@ -80,9 +80,55 @@
         "ownerId": { "type": "string", "maxLength": 128 }
       },
       "required": ["documentTitle", "senderId", "senderName", "targetDepartment", "status", "ownerId"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "User tasks and deliverable jobs.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "clientName": { "type": "string", "maxLength": 150 },
+        "assignedAgent": { "type": "string", "maxLength": 100 },
+        "priority": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 50 },
+        "dueDate": { "type": "string", "maxLength": 50 },
+        "summary": { "type": "string", "maxLength": 1000 },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["title", "ownerId"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Telephony call logs, recordings, and AI-assisted receptionist records.",
+      "type": "object",
+      "properties": {
+        "callerName": { "type": "string", "maxLength": 150 },
+        "company": { "type": "string", "maxLength": 150 },
+        "phoneNumber": { "type": "string", "maxLength": 50 },
+        "timestamp": { "type": "string", "maxLength": 100 },
+        "duration": { "type": "string", "maxLength": 50 },
+        "sentiment": { "type": "string", "maxLength": 50 },
+        "summary": { "type": "string", "maxLength": 2000 },
+        "agentRoutedTo": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "maxLength": 50 },
+        "answeredBy": { "type": "string", "maxLength": 50 },
+        "ownerId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["phoneNumber", "ownerId"]
     }
   },
   "firestore": {
+    "users/{userId}": {
+      "description": "User profile records."
+    },
+    "calls/{callId}": {
+      "schema": { "$ref": "#/entities/Call" },
+      "description": "Collection of incoming and outbound telephone call records."
+    },
+    "jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/Job" },
+      "description": "User tasks and jobs."
+    },
     "agents/{agentId}": {
       "schema": { "$ref": "#/entities/Agent" },
       "description": "Collection of autonomous agents."

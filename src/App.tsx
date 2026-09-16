@@ -22,6 +22,9 @@ import { GmailView } from './components/GmailView';
 import { TeamMessagingView } from './components/TeamMessagingView';
 import { employeeMessagingService } from './services/employeeMessagingService';
 import { GoogleCalendarEvent, GooglePickerDocument } from './services/googleWorkspace';
+import { auth, googleProvider } from './services/firebaseAuth';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { userDataService } from './services/userDataService';
 
 import { 
   INITIAL_AGENTS, 
@@ -52,6 +55,23 @@ export const App: React.FC = () => {
   // Employee Messaging Unread Count
   const [unreadMsgCount, setUnreadMsgCount] = useState<number>(() => employeeMessagingService.getUnreadCount());
 
+  // Firebase Auth State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  React.useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        try {
+          await userDataService.saveUserProfile(user);
+        } catch (e) {
+          console.warn('Could not save user profile to Firestore:', e);
+        }
+      }
+    });
+    return () => unsubAuth();
+  }, []);
+
   React.useEffect(() => {
     const updateUnread = () => {
       setUnreadMsgCount(employeeMessagingService.getUnreadCount());
@@ -67,6 +87,48 @@ export const App: React.FC = () => {
   const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
   const [calls, setCalls] = useState<CallRecord[]>(INITIAL_CALL_RECORDS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
+
+  // Firestore Jobs & Calls Persistence Synchronization
+  React.useEffect(() => {
+    if (!currentUser) return;
+    const unsubJobs = userDataService.subscribeToJobs(currentUser.uid, (firestoreJobs) => {
+      if (firestoreJobs && firestoreJobs.length > 0) {
+        setJobs(firestoreJobs);
+      } else {
+        // Seed initial jobs to Firestore for this authenticated user
+        INITIAL_JOBS.forEach((j) => {
+          userDataService.saveJob(currentUser.uid, j);
+        });
+      }
+    });
+
+    const unsubCalls = userDataService.subscribeToCalls(currentUser.uid, (firestoreCalls) => {
+      if (firestoreCalls && firestoreCalls.length > 0) {
+        setCalls(firestoreCalls);
+      }
+    });
+
+    return () => {
+      unsubJobs();
+      unsubCalls();
+    };
+  }, [currentUser]);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error('Sign-in failed:', err);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Sign-out failed:', err);
+    }
+  };
 
   // Dynamic Handlers
   const handleToggleAgentStatus = (agentId: string) => {
@@ -173,11 +235,15 @@ export const App: React.FC = () => {
   const handleUpdateJobStatus = (jobId: string, status: JobStatus) => {
     setJobs(prev => prev.map(job => {
       if (job.id === jobId) {
-        return {
+        const updated = {
           ...job,
           status,
           progress: status === 'Completed' ? 1.0 : job.progress
         };
+        if (currentUser) {
+          userDataService.saveJob(currentUser.uid, updated);
+        }
+        return updated;
       }
       return job;
     }));
@@ -203,6 +269,9 @@ export const App: React.FC = () => {
     };
 
     setJobs(prev => [newJob, ...prev]);
+    if (currentUser) {
+      userDataService.saveJob(currentUser.uid, newJob);
+    }
     logAction('CREATE_JOB', `Created task: ${newJob.title}`);
   };
 
@@ -234,8 +303,19 @@ export const App: React.FC = () => {
   };
 
   const handleLogCall = (call: CallRecord) => {
-    setCalls(prev => [call, ...prev]);
-    logAction('VOIP_CALL_LOGGED', `Recorded call with ${call.phoneNumber} (${call.duration})`);
+    setCalls(prev => [call, ...prev.filter(c => c.id !== call.id)]);
+    if (currentUser) {
+      userDataService.saveCall(currentUser.uid, call);
+    }
+    logAction('VOIP_CALL_LOGGED', `Recorded call with ${call.phoneNumber} (${call.duration}) - Answered by: ${call.answeredBy || 'ai'}`);
+  };
+
+  const handleDeleteCall = (callId: string) => {
+    setCalls(prev => prev.filter(c => c.id !== callId));
+    if (currentUser) {
+      userDataService.removeCall(callId);
+    }
+    logAction('VOIP_CALL_DELETED', `Removed call record #${callId}`);
   };
 
   const handleProvisionAgent = (newAgentData: Partial<Agent>) => {
@@ -292,6 +372,9 @@ export const App: React.FC = () => {
     >
       {/* Top Header matching Screenshot 1 */}
       <Header
+        user={currentUser}
+        onSignIn={handleGoogleSignIn}
+        onSignOut={handleSignOut}
         onOpenSetup={() => setIsSetupModalOpen(true)}
         onRefresh={() => logAction('AUTO_SYNC', 'Synchronized real-time agent telemetry')}
         onOpenWorkspaceSync={() => setActiveTab('workspace')}
@@ -378,6 +461,11 @@ export const App: React.FC = () => {
               calls={calls}
               orgName={enterpriseProfile.name}
               onLogCall={handleLogCall}
+              onDeleteCall={handleDeleteCall}
+              onCreateJobFromCall={(job) => {
+                handleCreateJob(job);
+                setActiveTab('jobs');
+              }}
             />
           )}
 

@@ -22,6 +22,7 @@ import {
   Check
 } from 'lucide-react';
 import { Agent } from '../types';
+import { GeminiLiveVoiceView } from './GeminiLiveVoiceView';
 
 export interface VoiceDirectiveLog {
   id: string;
@@ -55,6 +56,7 @@ export const VoiceTranscriberView: React.FC<VoiceTranscriberViewProps> = ({
   const [recordSeconds, setRecordSeconds] = useState<number>(0);
 
   // Command detection & execution states
+  const [activeVoiceTab, setActiveVoiceTab] = useState<'live' | 'commands'>('live');
   const [voiceLogs, setVoiceLogs] = useState<VoiceDirectiveLog[]>([]);
   const [lastExecutedCommand, setLastExecutedCommand] = useState<VoiceDirectiveLog | null>(null);
   const [manualVoiceInput, setManualVoiceInput] = useState<string>('');
@@ -426,7 +428,48 @@ export const VoiceTranscriberView: React.FC<VoiceTranscriberViewProps> = ({
         </div>
       </div>
 
-      {/* Active Trigger Announcement Banner */}
+      {/* Voice Mode Selector Tabs */}
+      <div className="flex items-center gap-2 p-1 rounded-2xl bg-slate-950/80 border border-slate-800/80 w-fit">
+        <button
+          type="button"
+          id="tab-voice-live-api"
+          onClick={() => setActiveVoiceTab('live')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            activeVoiceTab === 'live'
+              ? 'bg-[#76d418] text-slate-950 shadow-md shadow-[#76d418]/20'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Radio className="w-4 h-4" />
+          <span>Gemini 3.8 Live Voice Conversation</span>
+        </button>
+
+        <button
+          type="button"
+          id="tab-voice-commands"
+          onClick={() => setActiveVoiceTab('commands')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            activeVoiceTab === 'commands'
+              ? 'bg-[#76d418] text-slate-950 shadow-md shadow-[#76d418]/20'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Command className="w-4 h-4" />
+          <span>Directive Dispatcher & Transcriber</span>
+        </button>
+      </div>
+
+      {activeVoiceTab === 'live' ? (
+        <GeminiLiveVoiceView 
+          onDirectTask={(task) => {
+            if (agents.length > 0 && onDirectAgentTask) {
+              onDirectAgentTask(agents[0].id, task);
+            }
+          }}
+        />
+      ) : (
+        <>
+          {/* Active Trigger Announcement Banner */}
       {lastExecutedCommand && (
         <div 
           id="voice-command-alert-banner"
@@ -760,6 +803,8 @@ export const VoiceTranscriberView: React.FC<VoiceTranscriberViewProps> = ({
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 };

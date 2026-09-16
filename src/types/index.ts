@@ -97,6 +97,12 @@ export interface Workflow {
   lastRun: string;
 }
 
+export interface CallTranscriptEntry {
+  speaker: 'customer' | 'operator' | 'ai' | 'system';
+  text: string;
+  time?: string;
+}
+
 export interface CallRecord {
   id: string;
   callerName: string;
@@ -108,6 +114,11 @@ export interface CallRecord {
   summary: string;
   agentRoutedTo: string;
   status: 'Completed' | 'Missed' | 'Voicemail' | 'In Progress';
+  answeredBy?: 'human' | 'ai' | 'missed';
+  transcript?: CallTranscriptEntry[];
+  actionItems?: string[];
+  audioDurationSec?: number;
+  ownerId?: string;
 }
 
 export interface ChatMessage {
