@@ -1,4 +1,3 @@
-
 name: Build RCOS 3.0 Mobile APK
 
 on:
@@ -74,3 +73,4 @@ jobs:
           name: RCOS-3.0-Mobile-Debug-APK
           path: android/rcos-mobile-fixed/app/build/outputs/apk/debug/*.apk
           retention-days: 14
+
