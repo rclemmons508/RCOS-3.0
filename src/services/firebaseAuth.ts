@@ -76,36 +76,19 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 export const WORKSPACE_SCOPES = [
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/drive.activity',
-  'https://www.googleapis.com/auth/drive.activity.readonly',
-  'https://www.googleapis.com/auth/drive.appdata',
-  'https://www.googleapis.com/auth/drive.apps.readonly',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.install',
-  'https://www.googleapis.com/auth/drive.meet.readonly',
-  'https://www.googleapis.com/auth/drive.metadata',
-  'https://www.googleapis.com/auth/drive.metadata.readonly',
-  'https://www.googleapis.com/auth/drive.photos.readonly',
+  // Drive — covers listing, reading, and the Google Picker (drive.file +
+  // drive.readonly are what Picker and Drive list/search actually require).
   'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive.scripts',
+  'https://www.googleapis.com/auth/drive.file',
+
+  // Calendar — read-only events listing.
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://mail.google.com/',
-  'https://www.googleapis.com/auth/gmail.addons.current.action.compose',
-  'https://www.googleapis.com/auth/gmail.addons.current.message.action',
-  'https://www.googleapis.com/auth/gmail.addons.current.message.metadata',
-  'https://www.googleapis.com/auth/gmail.addons.current.message.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
-  'https://www.googleapis.com/auth/gmail.insert',
-  'https://www.googleapis.com/auth/gmail.labels',
-  'https://www.googleapis.com/auth/gmail.metadata',
-  'https://www.googleapis.com/auth/gmail.modify',
+
+  // Gmail — read, triage (labels), compose drafts, and send.
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.settings.basic',
-  'https://www.googleapis.com/auth/gmail.settings.sharing',
-  'https://www.googleapis.com/auth/documents',
-  'https://www.googleapis.com/auth/documents.readonly'
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.send'
 ];
 
 export const googleProvider = new GoogleAuthProvider();
@@ -116,7 +99,30 @@ googleProvider.setCustomParameters({
 });
 
 let cachedAccessToken: string | null = null;
+let cachedAccessTokenExpiresAt: number | null = null;
 let isSigningIn = false;
+
+// Treat a token as expired 60s early so a request never launches with a
+// credential that lapses mid-flight.
+const TOKEN_EXPIRY_SKEW_MS = 60 * 1000;
+
+// Default Google OAuth access-token lifetime when the provider does not
+// report one. Google issues 1-hour tokens.
+const DEFAULT_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+function storeAccessToken(token: string, expiresInSeconds?: number | null) {
+  cachedAccessToken = token;
+  const ttlMs =
+    typeof expiresInSeconds === 'number' && expiresInSeconds > 0
+      ? expiresInSeconds * 1000
+      : DEFAULT_TOKEN_TTL_MS;
+  cachedAccessTokenExpiresAt = Date.now() + ttlMs;
+}
+
+function clearAccessToken() {
+  cachedAccessToken = null;
+  cachedAccessTokenExpiresAt = null;
+}
 
 export const initAuthListener = (
   onAuthSuccess?: (user: User, token: string) => void,
@@ -124,14 +130,14 @@ export const initAuthListener = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
+      if (cachedAccessToken && !isAccessTokenExpired()) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        cachedAccessToken = null;
+        clearAccessToken();
         if (onAuthFailure) onAuthFailure();
       }
     } else {
-      cachedAccessToken = null;
+      clearAccessToken();
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -145,8 +151,8 @@ export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessT
     if (!credential?.accessToken) {
       throw new Error('Failed to obtain Google access token from authentication credential.');
     }
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
+    storeAccessToken(credential.accessToken);
+    return { user: result.user, accessToken: credential.accessToken };
   } catch (error: any) {
     console.error('Firebase Google Sign-In error:', error);
     throw error;
@@ -155,15 +161,38 @@ export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessT
   }
 };
 
+/**
+ * Publishes an access token obtained outside the Firebase popup flow (for
+ * example the Google Identity Services token client or a manually supplied
+ * token) into the SHARED session cache.
+ *
+ * Every Workspace surface — Gmail, Drive, Calendar, the Picker — reads this
+ * one cache, so a token acquired in any one of them makes the others work
+ * without a second consent prompt. Call this at every point a token arrives.
+ */
+export const setManualAccessToken = (token: string, expiresInSeconds?: number | null) => {
+  storeAccessToken(token, expiresInSeconds);
+};
+
+/** True when the cached token is missing or past its usable lifetime. */
+export const isAccessTokenExpired = (): boolean => {
+  if (!cachedAccessToken) return true;
+  if (cachedAccessTokenExpiresAt === null) return false;
+  return Date.now() >= cachedAccessTokenExpiresAt - TOKEN_EXPIRY_SKEW_MS;
+};
+
+/** The shared token if it is still valid, otherwise null. */
 export const getCachedAccessToken = (): string | null => {
+  if (isAccessTokenExpired()) {
+    clearAccessToken();
+    return null;
+  }
   return cachedAccessToken;
 };
 
-export const setManualAccessToken = (token: string) => {
-  cachedAccessToken = token;
-};
+export const getAccessTokenExpiresAt = (): number | null => cachedAccessTokenExpiresAt;
 
 export const logoutGoogleWorkspace = async () => {
   await firebaseSignOut(auth);
-  cachedAccessToken = null;
+  clearAccessToken();
 };

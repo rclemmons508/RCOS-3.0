@@ -67,7 +67,7 @@ export interface GooglePickerDocument {
   iconUrl?: string;
 }
 
-import { WORKSPACE_SCOPES } from './firebaseAuth';
+import { WORKSPACE_SCOPES, setManualAccessToken } from './firebaseAuth';
 import firebaseConfig from '../../firebase-applet-config.json';
 export const SCOPES = WORKSPACE_SCOPES.join(' ');
 
@@ -76,7 +76,9 @@ export {
   initAuthListener,
   logoutGoogleWorkspace,
   setManualAccessToken,
-  getCachedAccessToken
+  getCachedAccessToken,
+  isAccessTokenExpired,
+  getAccessTokenExpiresAt
 } from './firebaseAuth';
 
 // Google Client ID configuration - aligned with configured Firebase Project
@@ -116,6 +118,12 @@ export function initWorkspaceTokenClient(
       scope: SCOPES,
       callback: (tokenResponse: any) => {
         if (tokenResponse && tokenResponse.access_token) {
+          // Publish into the shared Workspace session so Gmail, Drive and
+          // Calendar all see this token without a second consent prompt.
+          setManualAccessToken(
+            tokenResponse.access_token,
+            typeof tokenResponse.expires_in === 'number' ? tokenResponse.expires_in : null
+          );
           onTokenReceived(tokenResponse.access_token);
         } else if (tokenResponse && tokenResponse.error) {
           console.error('OAuth token error:', tokenResponse.error);

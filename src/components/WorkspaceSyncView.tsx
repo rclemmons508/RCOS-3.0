@@ -50,6 +50,8 @@ import {
   setCustomGoogleClientId,
   signInWithGoogleWorkspace,
   logoutGoogleWorkspace,
+  getCachedAccessToken,
+  setManualAccessToken,
   DEFAULT_GOOGLE_CLIENT_ID
 } from '../services/googleWorkspace';
 import { Agent } from '../types';
@@ -77,6 +79,20 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
   const [hasClientId, setHasClientId] = useState<boolean>(false);
+
+  // Adopt a Workspace token already acquired elsewhere in the app (for
+  // example by the Gmail hub). The session is shared, so this view can sync
+  // immediately instead of sending the user through consent again.
+  useEffect(() => {
+    const existing = getCachedAccessToken();
+    if (existing) {
+      setAccessToken(existing);
+      setIsAuthenticated(true);
+      performWorkspaceSync(existing);
+    }
+    // Runs once on mount; later tokens arrive via the GIS callback below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Credentials config & manual token state
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
@@ -114,6 +130,7 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
       if ((window as any).google?.accounts?.oauth2) {
         initWorkspaceTokenClient(
           (token: string) => {
+            setManualAccessToken(token);
             setAccessToken(token);
             setIsAuthenticated(true);
             setIsAuthorizing(false);
@@ -217,6 +234,7 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
   const handleApplyManualToken = (token: string) => {
     const trimmed = token.trim();
     if (!trimmed) return;
+    setManualAccessToken(trimmed);
     setAccessToken(trimmed);
     setIsAuthenticated(true);
     setAuthError(null);
@@ -235,6 +253,7 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
     // Reinit GIS
     initWorkspaceTokenClient(
       (token: string) => {
+        setManualAccessToken(token);
         setAccessToken(token);
         setIsAuthenticated(true);
         setIsAuthorizing(false);
