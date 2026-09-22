@@ -90,10 +90,10 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   const [hasCopiedWebhook, setHasCopiedWebhook] = useState(false);
 
   // Customer Portal simulator state
-  const [customerName, setCustomerName] = useState('Sarah Jenkins');
-  const [customerCompany, setCustomerCompany] = useState('Apex Technologies');
-  const [customerNumber, setCustomerNumber] = useState('+1 (415) 890-4321');
-  const [customerIssuePreset, setCustomerIssuePreset] = useState('Emergency Cloud Incident');
+  const [customerName, setCustomerName] = useState('');
+  const [customerCompany, setCustomerCompany] = useState('');
+  const [customerNumber, setCustomerNumber] = useState('');
+  const [customerIssuePreset, setCustomerIssuePreset] = useState('');
   const [customerSpeechInput, setCustomerSpeechInput] = useState('');
   const [isCustomerCalling, setIsCustomerCalling] = useState(false);
   const [customerCallState, setCustomerCallState] = useState<'idle' | 'calling' | 'connected' | 'ended'>('idle');
@@ -1258,14 +1258,14 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                   onClick={() => {
                     setIncomingCall({
                       id: `call-${Date.now()}`,
-                      callerName: 'Sarah Jenkins',
-                      phoneNumber: '+1 (415) 890-4321',
-                      company: 'Apex Technologies',
+                      callerName: 'Customer Inbound Line',
+                      phoneNumber: '+1 (800) 555-0199',
+                      company: 'Customer Inbound Service',
                       status: 'ringing',
                       answeredBy: null,
                       startTime: Date.now(),
                       transcript: [
-                        { speaker: 'system', text: 'Call initiated by Sarah Jenkins (Apex Tech) regarding urgent database failover.', time: new Date().toLocaleTimeString() }
+                        { speaker: 'system', text: 'Inbound line diagnostic test call connected.', time: new Date().toLocaleTimeString() }
                       ],
                       whisperDirectives: []
                     });
@@ -1273,25 +1273,25 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                   }}
                   className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 hover:border-amber-500/60 text-left transition-all cursor-pointer group"
                 >
-                  <span className="text-[10px] font-bold uppercase text-amber-400 block mb-1">Urgent Inbound</span>
+                  <span className="text-[10px] font-bold uppercase text-amber-400 block mb-1">Standard Inbound</span>
                   <h4 className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
-                    Sarah Jenkins
+                    Customer Inbound Line
                   </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Apex Technologies • Server Outage</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">+1 (800) 555-0199 • General Line</p>
                 </button>
 
                 <button
                   onClick={() => {
                     setIncomingCall({
                       id: `call-${Date.now()}`,
-                      callerName: 'David Sterling',
-                      phoneNumber: '+1 (212) 456-7890',
-                      company: 'Sterling Capital Group',
+                      callerName: 'Enterprise Client Line',
+                      phoneNumber: '+1 (888) 555-0144',
+                      company: 'Enterprise Client Inbound',
                       status: 'ringing',
                       answeredBy: null,
                       startTime: Date.now(),
                       transcript: [
-                        { speaker: 'system', text: 'Call initiated by David Sterling requesting enterprise multi-agent fleet quote.', time: new Date().toLocaleTimeString() }
+                        { speaker: 'system', text: 'Enterprise client inbound line diagnostic test call initiated.', time: new Date().toLocaleTimeString() }
                       ],
                       whisperDirectives: []
                     });
@@ -1299,25 +1299,25 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                   }}
                   className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 hover:border-[#76d418]/60 text-left transition-all cursor-pointer group"
                 >
-                  <span className="text-[10px] font-bold uppercase text-[#76d418] block mb-1">Enterprise Sales</span>
+                  <span className="text-[10px] font-bold uppercase text-[#76d418] block mb-1">Enterprise Line</span>
                   <h4 className="text-xs font-bold text-white group-hover:text-[#76d418] transition-colors">
-                    David Sterling
+                    Enterprise Client Line
                   </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Sterling Capital • Enterprise Quote</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">+1 (888) 555-0144 • Dedicated Trunk</p>
                 </button>
 
                 <button
                   onClick={() => {
                     setIncomingCall({
                       id: `call-${Date.now()}`,
-                      callerName: 'Elena Rostova',
-                      phoneNumber: '+1 (310) 902-1144',
-                      company: 'Rostova Global Logistics',
+                      callerName: 'Priority Operations Line',
+                      phoneNumber: '+1 (877) 555-0122',
+                      company: 'Priority Operations Inbound',
                       status: 'ringing',
                       answeredBy: null,
                       startTime: Date.now(),
                       transcript: [
-                        { speaker: 'system', text: 'Call initiated by Elena Rostova inquiring about agent workflow integration.', time: new Date().toLocaleTimeString() }
+                        { speaker: 'system', text: 'Priority operations line diagnostic test call initiated.', time: new Date().toLocaleTimeString() }
                       ],
                       whisperDirectives: []
                     });
@@ -1325,11 +1325,11 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                   }}
                   className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 hover:border-cyan-500/60 text-left transition-all cursor-pointer group"
                 >
-                  <span className="text-[10px] font-bold uppercase text-cyan-400 block mb-1">Operations Query</span>
+                  <span className="text-[10px] font-bold uppercase text-cyan-400 block mb-1">Priority Line</span>
                   <h4 className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors">
-                    Elena Rostova
+                    Priority Operations Line
                   </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Rostova Global • Workflow API</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">+1 (877) 555-0122 • Direct Dispatch</p>
                 </button>
               </div>
             </div>

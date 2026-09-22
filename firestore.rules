@@ -61,6 +61,10 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
+    match /test/{docId} {
+      allow read: if true;
+    }
+
     match /jobs/{jobId} {
       allow read, list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
       allow create: if isSignedIn() && isValidId(jobId) && incoming().ownerId == request.auth.uid;

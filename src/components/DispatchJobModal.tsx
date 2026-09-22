@@ -47,7 +47,7 @@ export const DispatchJobModal: React.FC<DispatchJobModalProps> = ({
   const [clientName, setClientName] = useState<string>('');
   const [priority, setPriority] = useState<JobPriority>('High');
   const [dueDate, setDueDate] = useState<string>('Today by 18:00');
-  const [budget, setBudget] = useState<string>('$1,200 Labor / Parts');
+  const [budget, setBudget] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
 
   if (!isOpen) return null;
@@ -77,37 +77,37 @@ export const DispatchJobModal: React.FC<DispatchJobModalProps> = ({
 
   const loadPresetTemplate = (type: 'maintenance' | 'client' | 'urgent_inspection' | 'legal') => {
     if (type === 'maintenance') {
-      setTitle('HVAC System Critical Compressor Diagnostics & Filter Replacement');
+      setTitle('Equipment Diagnostics & Filter Maintenance');
       setDepartment('Operations & Field Services');
       setPriority('High');
       setDueDate('Today by 16:30');
-      setBudget('$1,850 Labor & Equipment');
-      setSummary('Dispatching field technician team to inspect unit #4 rooftop vibration alarms and swap secondary filtration matrix.');
-      setClientName('Meridian Towers Facility');
+      setBudget('');
+      setSummary('Dispatching field technician team to inspect equipment vibration alarms and swap secondary filtration matrix.');
+      setClientName('');
     } else if (type === 'urgent_inspection') {
       setTitle('Site Structural & Electrical Grounding Safety Certification');
       setDepartment('Operations & Field Services');
       setPriority('Urgent');
       setDueDate('Immediate (Next 2 Hours)');
-      setBudget('$2,500 Field Dispatch');
-      setSummary('Perform emergency verification on transformer station tie-in before municipal grid activation.');
-      setClientName('Apex Logistics Hub');
+      setBudget('');
+      setSummary('Perform emergency verification on electrical station tie-in before facility activation.');
+      setClientName('');
     } else if (type === 'client') {
-      setTitle('Client Escalation Triage: Contract Addendum & Service SLA Review');
+      setTitle('Client Escalation Triage: Service SLA Review');
       setDepartment('Client Support & Accounts');
       setPriority('High');
       setDueDate('Tomorrow by 11:00');
-      setBudget('$500 Account Review');
-      setSummary('Review client-submitted expansion ticket, audit past 30 days uptime logs, and prep executive response memo.');
-      setClientName('Vanguard Global Logistics');
+      setBudget('');
+      setSummary('Review client inquiry, audit past 30 days uptime logs, and prepare response memo.');
+      setClientName('');
     } else if (type === 'legal') {
-      setTitle('Regulatory Compliance Sign-Off for Subcontractor Personnel');
+      setTitle('Regulatory Compliance Sign-Off for Personnel');
       setDepartment('Legal & Compliance');
       setPriority('Normal');
       setDueDate('Within 48 Hours');
-      setBudget('$400 Legal Audit');
-      setSummary('Verify OSHA 30 certifications, general liability insurance endorsements, and state license status for incoming subcontractor crew.');
-      setClientName('Internal Operations');
+      setBudget('');
+      setSummary('Verify regulatory certifications, general liability insurance endorsements, and credentials for incoming crew.');
+      setClientName('');
     }
   };
 
@@ -250,7 +250,7 @@ export const DispatchJobModal: React.FC<DispatchJobModalProps> = ({
                 type="text"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
-                placeholder="e.g. Apex Logistics Hub or Internal"
+                placeholder="e.g. Enterprise Client or Internal"
                 className="w-full bg-[#050906] border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-[#76d418]"
               />
             </div>

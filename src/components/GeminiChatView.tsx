@@ -36,7 +36,7 @@ const ROLE_PRESETS: ChatRolePreset[] = [
     name: 'Executive Fleet Orchestrator',
     department: 'Command',
     systemInstruction: 'You are the Chief Autonomous Operations Orchestrator for RCOS. You synthesize enterprise telemetry, triage organizational bottlenecks, and delegate directives across subordinate agent fleets with maximum precision.',
-    recommendedModel: 'gemini-3.5-flash'
+    recommendedModel: 'gemini-3.8-flash'
   },
   {
     id: 'compliance',
@@ -57,12 +57,12 @@ const ROLE_PRESETS: ChatRolePreset[] = [
     name: 'Global Market Intelligence',
     department: 'Intelligence',
     systemInstruction: 'You are the Market Intelligence Agent. You perform real-time web search grounding to provide verified, up-to-date facts, tariff changes, vendor benchmarks, and market shifts.',
-    recommendedModel: 'gemini-3.5-flash'
+    recommendedModel: 'gemini-3.8-flash'
   }
 ];
 
 export const GeminiChatView: React.FC<GeminiChatViewProps> = ({ agents }) => {
-  const [selectedModel, setSelectedModel] = useState<GeminiModelType>('gemini-3.5-flash');
+  const [selectedModel, setSelectedModel] = useState<GeminiModelType>('gemini-3.8-flash');
   const [selectedRole, setSelectedRole] = useState<ChatRolePreset>(ROLE_PRESETS[0]);
   const [customSystemInstruction, setCustomSystemInstruction] = useState<string>(ROLE_PRESETS[0].systemInstruction);
   const [showRoleConfig, setShowRoleConfig] = useState<boolean>(false);
@@ -77,7 +77,7 @@ export const GeminiChatView: React.FC<GeminiChatViewProps> = ({ agents }) => {
       role: 'model',
       content: `Greetings Executive. RCOS Autonomous Multi-Turn Agent Console is active. Powered by Gemini, I can assist with enterprise fleet orchestration, governance audits, or real-time search-grounded research. What directive shall we evaluate?`,
       timestamp: 'Online',
-      modelUsed: 'gemini-3.5-flash'
+      modelUsed: 'gemini-3.8-flash'
     }
   ]);
 
@@ -197,17 +197,17 @@ export const GeminiChatView: React.FC<GeminiChatViewProps> = ({ agents }) => {
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              id="model-gemini-3-5-flash"
-              onClick={() => setSelectedModel('gemini-3.5-flash')}
+              id="model-gemini-3-8-flash"
+              onClick={() => setSelectedModel('gemini-3.8-flash')}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                selectedModel === 'gemini-3.5-flash'
+                selectedModel === 'gemini-3.8-flash'
                   ? 'bg-[#76d418] text-slate-950 shadow-sm shadow-[#76d418]/30'
                   : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
               }`}
-              title="gemini-3.5-flash: Balanced for general enterprise tasks and search grounding"
+              title="gemini-3.8-flash: Balanced for general enterprise tasks, live telephony, and search grounding"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>3.5 Flash (General)</span>
+              <span>3.8 Flash (General)</span>
             </button>
 
             <button
@@ -281,7 +281,7 @@ export const GeminiChatView: React.FC<GeminiChatViewProps> = ({ agents }) => {
               <Globe className="w-3.5 h-3.5 text-[#76d418]" />
               <span className="font-semibold">Google Search Grounding</span>
               <span className="text-[10px] text-slate-400 font-normal">
-                (Up-to-date real-time web citations via gemini-3.5-flash)
+                (Up-to-date real-time web citations via gemini-3.8-flash)
               </span>
             </div>
           </label>

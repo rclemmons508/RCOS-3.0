@@ -23,6 +23,74 @@ function getGeminiClient(): GoogleGenAI | null {
   return geminiClient;
 }
 
+// Resilient Gemini helper with transient retry (503/429) and model fallback chain
+async function generateContentWithRetryAndFallback(
+  ai: GoogleGenAI,
+  params: {
+    model: string;
+    contents: any;
+    config?: any;
+  },
+  fallbackModels: string[] = ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+): Promise<{ response: any; modelUsed: string }> {
+  let targetModel = params.model;
+  // Upgrade older or non-standard model references
+  if (targetModel === "gemini-3.5-flash" || !targetModel) {
+    targetModel = "gemini-3.8-flash";
+  }
+
+  const modelCandidates = [targetModel, ...fallbackModels.filter(m => m !== targetModel)];
+  let lastError: any = null;
+
+  for (const modelToTry of modelCandidates) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          ...params,
+          model: modelToTry
+        });
+        return { response, modelUsed: modelToTry };
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err?.message || "");
+        const status = err?.status || err?.code || 0;
+        const isTransient = status === 503 || status === 429 || errMsg.includes("503") || errMsg.includes("429") || errMsg.includes("high demand") || errMsg.includes("UNAVAILABLE");
+
+        if (isTransient && attempt === 0) {
+          // Brief pause before single retry on same model
+          await new Promise(resolve => setTimeout(resolve, 350));
+          continue;
+        }
+        break; // Advance to fallback model
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function createLocalCallSummary(call: any, transcriptText: string) {
+  const caller = call?.callerName || "Inbound Caller";
+  const company = call?.company || "Direct Inbound";
+  const numExchanges = transcriptText ? transcriptText.split("\n").filter(Boolean).length : 0;
+
+  return {
+    summary: `Telephone consultation completed with ${caller} (${company}). ${numExchanges > 0 ? `Captured ${numExchanges} dialog exchanges recorded in telephony logs.` : "Call logged into telephony registry."}`,
+    sentiment: "Neutral",
+    callerName: caller,
+    company: company,
+    actionItems: [
+      `Review conversation notes for ${caller}`,
+      "Follow up on scheduled client requirements"
+    ],
+    suggestedJob: {
+      title: `Client Follow-up: ${caller}`,
+      priority: "Normal",
+      summary: `Review telephony conversation logs and follow up with ${caller} from ${company}.`
+    }
+  };
+}
+
 async function startServer() {
   const app = express();
   const server = http.createServer(app);
@@ -95,12 +163,12 @@ async function startServer() {
     });
   });
 
-  // 1. Gemini Multi-turn Chat Endpoint (gemini-3.1-pro-preview, gemini-3.5-flash, gemini-3.1-flash-lite)
+  // 1. Gemini Multi-turn Chat Endpoint (gemini-3.8-flash, gemini-3.1-pro-preview, gemini-3.1-flash-lite)
   app.post("/api/gemini/chat", async (req, res) => {
     try {
       const {
         messages,
-        model = "gemini-3.5-flash",
+        model = "gemini-3.8-flash",
         systemInstruction,
         useSearchGrounding = false
       } = req.body;
@@ -114,8 +182,11 @@ async function startServer() {
 
       // Validated models per prompt requirements:
       let selectedModel = model;
-      if (!["gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-3.1-flash-lite"].includes(selectedModel)) {
-        selectedModel = "gemini-3.5-flash";
+      if (selectedModel === "gemini-3.5-flash" || !selectedModel) {
+        selectedModel = "gemini-3.8-flash";
+      }
+      if (!["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite"].includes(selectedModel)) {
+        selectedModel = "gemini-3.8-flash";
       }
 
       // Prepare contents array
@@ -137,11 +208,15 @@ async function startServer() {
         config.tools = [{ googleSearch: {} }];
       }
 
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents,
-        config
-      });
+      const { response, modelUsed } = await generateContentWithRetryAndFallback(
+        ai,
+        {
+          model: selectedModel,
+          contents,
+          config
+        },
+        ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+      );
 
       const text = response.text || "";
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
@@ -155,7 +230,7 @@ async function startServer() {
       return res.json({
         text,
         sources,
-        modelUsed: selectedModel
+        modelUsed
       });
     } catch (err: any) {
       console.error("Gemini Chat API error:", err);
@@ -165,7 +240,7 @@ async function startServer() {
     }
   });
 
-  // 2. Google Search Grounding with gemini-3.5-flash
+  // 2. Google Search Grounding with gemini-3.8-flash
   app.post("/api/gemini/search", async (req, res) => {
     try {
       const { query } = req.body;
@@ -180,14 +255,18 @@ async function startServer() {
         });
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: `Provide an accurate, grounded, real-time factual briefing with sources for: ${query}`,
-        config: {
-          tools: [{ googleSearch: {} }],
-          systemInstruction: "You are the RCOS Market Intelligence & Search Grounding Agent. Use real-time Google Search data to deliver concise, factual briefings with accurate citations."
-        }
-      });
+      const { response, modelUsed } = await generateContentWithRetryAndFallback(
+        ai,
+        {
+          model: "gemini-3.8-flash",
+          contents: `Provide an accurate, grounded, real-time factual briefing with sources for: ${query}`,
+          config: {
+            tools: [{ googleSearch: {} }],
+            systemInstruction: "You are the RCOS Market Intelligence & Search Grounding Agent. Use real-time Google Search data to deliver concise, factual briefings with accurate citations."
+          }
+        },
+        ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+      );
 
       const text = response.text || "";
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
@@ -202,7 +281,7 @@ async function startServer() {
         text,
         sources,
         query,
-        modelUsed: "gemini-3.5-flash"
+        modelUsed
       });
     } catch (err: any) {
       console.error("Search Grounding API error:", err);
@@ -228,15 +307,27 @@ async function startServer() {
     });
   });
 
+  // XML escape helper for TwiML responses
+  function escapeXml(unsafe: string): string {
+    if (!unsafe) return "";
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+
   // Telephony Webhook for Incoming Calls (Twilio & Web Calling Portal compatible)
   app.post("/api/telephony/incoming", (req, res) => {
     try {
       const callerNumber = req.body.From || req.body.phoneNumber || "+1 (555) 234-8901";
-      const callerName = req.body.CallerName || req.body.callerName || "Customer Inquiry";
+      const callerName = req.body.CallerName || req.body.callerName || (req.body.From ? `Caller ${req.body.From}` : "Customer Inquiry");
       const company = req.body.company || (req.body.FromCity ? `${req.body.FromCity} Enterprise` : "Direct Inbound Caller");
       const issueSummary = req.body.issueSummary || "Incoming customer telephone call";
 
-      const callId = `call-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const callSid = req.body.CallSid || "";
+      const callId = callSid || `call-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const newCall: TelephonyCallSession = {
         id: callId,
         callerName,
@@ -252,6 +343,9 @@ async function startServer() {
       };
 
       activeTelephonyCalls.set(callId, newCall);
+      if (callSid && callSid !== callId) {
+        activeTelephonyCalls.set(callSid, newCall);
+      }
 
       // Broadcast ringing event to all operator dashboards
       broadcastToOperators({
@@ -259,14 +353,24 @@ async function startServer() {
         call: newCall
       });
 
-      // If requested by Twilio (accepts XML or has CallSid), return TwiML
-      if (req.body.CallSid || req.headers.accept?.includes("xml") || req.headers["content-type"]?.includes("urlencoded")) {
+      // If requested by Twilio (CallSid present or urlencoded/xml), return production TwiML
+      const isTwilio = Boolean(
+        req.body.CallSid || 
+        req.headers["x-twilio-signature"] ||
+        req.headers.accept?.includes("xml") || 
+        req.headers["content-type"]?.includes("urlencoded")
+      );
+
+      if (isTwilio) {
+        const actionUrl = `/api/telephony/ai-respond?callId=${encodeURIComponent(callId)}`;
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Matthew">Thank you for calling RCOS Enterprise Solutions. Connecting your call to our operational team or AI receptionist.</Say>
-  <Gather input="speech" timeout="5" action="/api/telephony/ai-respond" method="POST">
-    <Say>Please state how we may assist you today.</Say>
+  <Gather input="speech" timeout="5" speechTimeout="auto" action="${escapeXml(actionUrl)}" method="POST">
+    <Say voice="Polly.Matthew">Please state how we may assist you today.</Say>
   </Gather>
+  <Say voice="Polly.Matthew">We did not receive any input. Please hold while we route you to our operational lead.</Say>
+  <Redirect method="POST">${escapeXml(actionUrl)}</Redirect>
 </Response>`;
         res.type("text/xml").send(twiml);
       } else {
@@ -281,24 +385,58 @@ async function startServer() {
     }
   });
 
-  // Telephony AI Receptionist Response Generator (Gemini 3.5 Flash)
+  // Telephony AI Receptionist Response Generator (Gemini 3.8 Flash, Twilio & Web Compatible)
   app.post("/api/telephony/ai-respond", async (req, res) => {
     try {
-      const {
-        callId,
-        customerText,
-        conversationHistory = [],
-        whisperDirectives = []
-      } = req.body;
+      const callId = req.body.callId || req.body.CallSid || (req.query?.callId as string) || "";
+      const customerText = req.body.SpeechResult || req.body.customerText || req.body.TranscriptionText || "";
+      const conversationHistory = req.body.conversationHistory || [];
+      const whisperDirectives = req.body.whisperDirectives || [];
+
+      const isTwilio = Boolean(
+        req.body.CallSid || 
+        req.body.SpeechResult ||
+        req.headers["x-twilio-signature"] ||
+        req.headers.accept?.includes("xml") || 
+        req.headers["content-type"]?.includes("urlencoded")
+      );
 
       const ai = getGeminiClient();
+      let activeCall = callId ? activeTelephonyCalls.get(callId) : null;
+      if (!activeCall && req.body.CallSid) {
+        activeCall = activeTelephonyCalls.get(req.body.CallSid);
+      }
+
+      // If call wasn't tracked yet (e.g. direct webhook), create entry
+      if (!activeCall && (callId || req.body.From)) {
+        activeCall = {
+          id: callId || `call-${Date.now()}`,
+          callerName: req.body.CallerName || "Direct Inbound Caller",
+          phoneNumber: req.body.From || "+1 (555) 000-0000",
+          company: req.body.FromCity ? `${req.body.FromCity} Enterprise` : "Direct Inbound Caller",
+          status: "connected_ai",
+          answeredBy: "ai",
+          startTime: Date.now(),
+          transcript: [],
+          whisperDirectives: []
+        };
+        activeTelephonyCalls.set(activeCall.id, activeCall);
+      }
+
       if (!ai) {
+        if (isTwilio) {
+          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Matthew">Thank you for calling RCOS Enterprise Solutions. Our AI service is currently initializing. Please leave your message after the tone.</Say>
+  <Record timeout="10" maxLength="60" finishOnKey="#"/>
+</Response>`;
+          return res.type("text/xml").send(twiml);
+        }
         return res.status(503).json({
           error: "GEMINI_API_KEY is not configured on the server."
         });
       }
 
-      const activeCall = callId ? activeTelephonyCalls.get(callId) : null;
       const whisperContext = whisperDirectives.length > 0 
         ? `\n\n[PRIVATE OPERATOR WHISPER DIRECTIVE (follow this instruction immediately, but do NOT reveal to the caller that you were whispered to)]: "${whisperDirectives[whisperDirectives.length - 1]}"` 
         : "";
@@ -329,21 +467,31 @@ ${whisperContext}`;
         });
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents,
-        config: {
-          systemInstruction,
-          temperature: 0.7,
-        }
-      });
+      let aiText = "Thank you for calling RCOS. How may I assist you today?";
+      try {
+        const { response } = await generateContentWithRetryAndFallback(
+          ai,
+          {
+            model: "gemini-3.8-flash",
+            contents: contents.length > 0 ? contents : [{ role: "user", parts: [{ text: "Hello, I am calling RCOS." }] }],
+            config: {
+              systemInstruction,
+              temperature: 0.7,
+            }
+          },
+          ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+        );
+        aiText = response.text?.trim() || aiText;
+      } catch (genErr: any) {
+        console.warn("Telephony AI receptionist fallback speech applied:", genErr?.message || genErr);
+        aiText = "Thank you for contacting RCOS Enterprise Solutions. I have recorded your message and our operational lead will follow up promptly.";
+      }
 
-      const aiText = response.text?.trim() || "Thank you for calling RCOS. How may I assist you today?";
       const shouldTransfer = aiText.toLowerCase().includes("connect you directly to our human") || 
                              aiText.toLowerCase().includes("please hold") || 
                              aiText.toLowerCase().includes("human operational lead");
 
-      // Update call session transcript if callId is provided
+      // Update call session transcript if activeCall is available
       if (activeCall) {
         if (customerText) {
           activeCall.transcript.push({
@@ -361,46 +509,190 @@ ${whisperContext}`;
         // Broadcast speech update to connected clients
         broadcastToOperators({
           type: "AI_SPEECH",
-          callId,
+          callId: activeCall.id,
           text: aiText,
           shouldTransfer
         });
 
-        const customerWs = callerClients.get(callId);
+        const customerWs = callerClients.get(activeCall.id);
         if (customerWs && customerWs.readyState === WebSocket.OPEN) {
           customerWs.send(JSON.stringify({
             type: "AI_SPEECH",
-            callId,
+            callId: activeCall.id,
             text: aiText,
             shouldTransfer
           }));
         }
       }
 
+      // If requested by Twilio, return valid TwiML XML
+      if (isTwilio) {
+        const safeAiText = escapeXml(aiText);
+        const resolvedCallId = activeCall?.id || callId;
+        if (shouldTransfer) {
+          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Matthew">${safeAiText}</Say>
+  <Say voice="Polly.Matthew">Transferring your call to our executive operations queue now. Please hold.</Say>
+</Response>`;
+          return res.type("text/xml").send(twiml);
+        } else {
+          const actionUrl = `/api/telephony/ai-respond?callId=${encodeURIComponent(resolvedCallId)}`;
+          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Matthew">${safeAiText}</Say>
+  <Gather input="speech" timeout="5" speechTimeout="auto" action="${escapeXml(actionUrl)}" method="POST">
+    <Say voice="Polly.Matthew">How else may I assist you today?</Say>
+  </Gather>
+  <Say voice="Polly.Matthew">Thank you for calling RCOS Enterprise Solutions. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+          return res.type("text/xml").send(twiml);
+        }
+      }
+
       res.json({
         aiText,
-        callId,
+        callId: activeCall?.id || callId,
         shouldTransfer,
         status: "ok"
       });
     } catch (err: any) {
-      console.error("Telephony AI receptionist error:", err);
-      res.status(500).json({ error: err.message || "Failed to generate AI response" });
+      console.error("Telephony AI receptionist route error:", err);
+      const isTwilio = Boolean(
+        req.body?.CallSid || 
+        req.headers["x-twilio-signature"] ||
+        req.headers.accept?.includes("xml") || 
+        req.headers["content-type"]?.includes("urlencoded")
+      );
+      if (isTwilio) {
+        return res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Matthew">Thank you for calling RCOS Enterprise Solutions. Please hold for an operator.</Say>
+</Response>`);
+      }
+      res.json({
+        aiText: "Thank you for calling RCOS Enterprise. Your message is noted.",
+        callId: req.body?.callId,
+        shouldTransfer: false,
+        status: "ok"
+      });
     }
   });
 
-  // Telephony Summarization & Action Extraction Endpoint (Gemini 3.5 Flash)
-  app.post("/api/telephony/summarize", async (req, res) => {
+  // Twilio Call Status Callback Webhook
+  app.post("/api/telephony/status", (req, res) => {
     try {
-      const { callId, transcript = [] } = req.body;
-      const ai = getGeminiClient();
-      if (!ai) {
-        return res.status(503).json({ error: "GEMINI_API_KEY is not configured" });
+      const callSid = req.body.CallSid;
+      const callStatus = req.body.CallStatus; // 'completed', 'busy', 'no-answer', 'failed', 'canceled'
+      const duration = req.body.CallDuration;
+
+      console.log(`Twilio Call Status Webhook: Sid=${callSid}, Status=${callStatus}, Duration=${duration}s`);
+
+      if (callSid) {
+        const call = activeTelephonyCalls.get(callSid);
+        if (call) {
+          if (callStatus === "completed" || callStatus === "canceled" || callStatus === "failed") {
+            call.status = "ended";
+            call.transcript.push({
+              speaker: "system",
+              text: `Call ended by carrier network (${callStatus}, duration: ${duration || 0}s).`,
+              time: new Date().toLocaleTimeString()
+            });
+            broadcastToOperators({
+              type: "CALL_ENDED",
+              callId: call.id,
+              callStatus,
+              duration
+            });
+          }
+        }
       }
 
-      const transcriptText = transcript
-        .map((t: any) => `${t.speaker.toUpperCase()}: ${t.text}`)
-        .join("\n");
+      res.type("text/xml").send("<Response/>");
+    } catch (err: any) {
+      console.error("Twilio status webhook error:", err);
+      res.status(200).send("<Response/>");
+    }
+  });
+
+  // Twilio Inbound & Outbound SMS Webhook
+  app.post("/api/telephony/sms", async (req, res) => {
+    try {
+      const fromNumber = req.body.From;
+      const toNumber = req.body.To;
+      const bodyText = req.body.Body || req.body.text || "";
+
+      if (fromNumber && bodyText) {
+        const ai = getGeminiClient();
+        let reply = "Thank you for contacting RCOS Enterprise Solutions. An operational director has received your message and will respond promptly.";
+
+        if (ai) {
+          try {
+            const { response } = await generateContentWithRetryAndFallback(
+              ai,
+              {
+                model: "gemini-3.8-flash",
+                contents: [{
+                  role: "user",
+                  parts: [{
+                    text: `You are Aegis, executive communications assistant for RCOS Enterprise Solutions. 
+A customer texted our enterprise number: "${bodyText}".
+Write a professional, concise SMS reply under 160 characters. Do not use emojis.`
+                  }]
+                }]
+              },
+              ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+            );
+            reply = response.text?.trim() || reply;
+          } catch (e) {
+            console.warn("SMS AI reply fallback applied:", e);
+          }
+        }
+
+        broadcastToOperators({
+          type: "INCOMING_SMS",
+          from: fromNumber,
+          to: toNumber,
+          body: bodyText,
+          reply,
+          timestamp: new Date().toISOString()
+        });
+
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Message>${escapeXml(reply)}</Message>
+</Response>`;
+        return res.type("text/xml").send(twiml);
+      }
+
+      res.json({ status: "ok" });
+    } catch (err: any) {
+      console.error("SMS webhook error:", err);
+      res.status(500).type("text/xml").send("<Response/>");
+    }
+  });
+
+  // Telephony Summarization & Action Extraction Endpoint (gemini-3.8-flash with fallback)
+  app.post("/api/telephony/summarize", async (req, res) => {
+    const { callId, transcript = [] } = req.body;
+    const activeCall = callId ? activeTelephonyCalls.get(callId) : null;
+    const transcriptText = Array.isArray(transcript)
+      ? transcript.map((t: any) => `${t.speaker?.toUpperCase() || "CALLER"}: ${t.text || ""}`).join("\n")
+      : (typeof transcript === "string" ? transcript : "");
+
+    try {
+      const ai = getGeminiClient();
+      if (!ai) {
+        const fallback = createLocalCallSummary(activeCall, transcriptText);
+        if (activeCall) {
+          activeCall.summary = fallback.summary;
+          activeCall.sentiment = fallback.sentiment;
+          activeCall.actionItems = fallback.actionItems;
+          activeCall.status = "ended";
+        }
+        return res.json(fallback);
+      }
 
       const prompt = `Analyze this completed telephone call transcript for RCOS Enterprise Solutions and provide a JSON summary.
 Transcript:
@@ -420,33 +712,47 @@ Return pure JSON matching this exact structure:
   }
 }`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
+      const { response } = await generateContentWithRetryAndFallback(
+        ai,
+        {
+          model: "gemini-3.8-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: {
+            responseMimeType: "application/json"
+          }
+        },
+        ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+      );
 
-      const parsed = JSON.parse(response.text?.trim() || "{}");
-
-      if (callId && activeTelephonyCalls.has(callId)) {
-        const call = activeTelephonyCalls.get(callId)!;
-        call.summary = parsed.summary;
-        call.sentiment = parsed.sentiment;
-        call.actionItems = parsed.actionItems;
-        call.status = "ended";
+      let parsed: any = {};
+      try {
+        parsed = JSON.parse(response.text?.trim() || "{}");
+      } catch {
+        parsed = createLocalCallSummary(activeCall, transcriptText);
       }
 
-      res.json(parsed);
+      if (!parsed.summary) {
+        parsed = { ...createLocalCallSummary(activeCall, transcriptText), ...parsed };
+      }
+
+      if (activeCall) {
+        activeCall.summary = parsed.summary;
+        activeCall.sentiment = parsed.sentiment || "Neutral";
+        activeCall.actionItems = parsed.actionItems || [];
+        activeCall.status = "ended";
+      }
+
+      return res.json(parsed);
     } catch (err: any) {
-      console.error("Telephony summarization error:", err);
-      res.status(500).json({
-        summary: "Telephone conversation completed and recorded in telemetry logs.",
-        sentiment: "Neutral",
-        actionItems: ["Review conversation logs", "Follow up if requested"],
-        suggestedJob: null
-      });
+      console.warn("Telephony summarization fallback applied:", err?.message || err);
+      const fallback = createLocalCallSummary(activeCall, transcriptText);
+      if (activeCall) {
+        activeCall.summary = fallback.summary;
+        activeCall.sentiment = fallback.sentiment;
+        activeCall.actionItems = fallback.actionItems;
+        activeCall.status = "ended";
+      }
+      return res.json(fallback);
     }
   });
 
@@ -703,11 +1009,21 @@ Caller: "${text}"
 ${whisper ? whisper + "\n" : ""}
 Reply warmly, concisely (1-2 sentences), and professionally over the telephone.`;
 
-                  const resp = await ai.models.generateContent({
-                    model: "gemini-3.5-flash",
-                    contents: [{ role: "user", parts: [{ text: prompt }] }]
-                  });
-                  const aiReply = resp.text?.trim() || "I understand. Let me note that for our operational team.";
+                  let aiReply = "I understand. Let me note that for our operational team.";
+                  try {
+                    const { response: resp } = await generateContentWithRetryAndFallback(
+                      ai,
+                      {
+                        model: "gemini-3.8-flash",
+                        contents: [{ role: "user", parts: [{ text: prompt }] }]
+                      },
+                      ["gemini-flash-latest", "gemini-3.1-flash-lite"]
+                    );
+                    aiReply = resp.text?.trim() || aiReply;
+                  } catch (genErr: any) {
+                    console.warn("WebSocket AI speech fallback applied:", genErr?.message || genErr);
+                  }
+
                   call.transcript.push({
                     speaker: "ai",
                     text: aiReply,

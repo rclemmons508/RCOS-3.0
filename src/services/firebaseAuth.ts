@@ -7,13 +7,25 @@ import {
   signOut as firebaseSignOut,
   User
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = (firebaseConfig as any).firestoreDatabaseId 
-  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId) 
-  : getFirestore(app);
+
+function initFirestoreInstance() {
+  const databaseId = (firebaseConfig as any).firestoreDatabaseId;
+  try {
+    return databaseId
+      ? initializeFirestore(app, { experimentalForceLongPolling: true }, databaseId)
+      : initializeFirestore(app, { experimentalForceLongPolling: true });
+  } catch {
+    return databaseId
+      ? getFirestore(app, databaseId)
+      : getFirestore(app);
+  }
+}
+
+export const db = initFirestoreInstance();
 export const auth = getAuth(app);
 
 // Test Firestore connection on boot as required by Firebase skill
@@ -22,7 +34,7 @@ async function testConnection() {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('Firestore offline notice: client is operating in cached mode until connected.');
     }
   }
 }

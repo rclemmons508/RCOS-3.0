@@ -24,7 +24,7 @@ export const DeepThinkingView: React.FC = () => {
     {
       stage: 'Phase 2: Sub-Agent Cross-Dependency Evaluation',
       summary: 'Synthesized telemetry between Vanguard CRM and Pulse Voice.',
-      detail: 'Client contracts with Apex Logistics specify a maximum allowable delay of 72 hours before contractual liquidated damages apply ($45,000/day).'
+      detail: 'Enterprise client agreements specify a maximum allowable delay of 72 hours before contractual liquidated damages apply ($45,000/day).'
     },
     {
       stage: 'Phase 3: Autonomous Strategy Synthesis',
