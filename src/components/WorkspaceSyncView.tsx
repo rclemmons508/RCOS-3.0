@@ -164,6 +164,12 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
     // Default & Recommended: Firebase Auth Popup (uses project's OAuth configuration)
     try {
       const result = await signInWithGoogleWorkspace();
+      if (!result) {
+        // User voluntarily closed the popup
+        setIsAuthorizing(false);
+        pendingOpenPickerRef.current = false;
+        return;
+      }
       if (result && result.accessToken) {
         setAccessToken(result.accessToken);
         setIsAuthenticated(true);
@@ -178,12 +184,12 @@ export const WorkspaceSyncView: React.FC<WorkspaceSyncViewProps> = ({
         return;
       }
     } catch (fbErr: any) {
-      console.warn('Firebase Auth attempt failed:', fbErr);
-      if (fbErr?.code === 'auth/popup-closed-by-user') {
+      if (fbErr?.code === 'auth/popup-closed-by-user' || fbErr?.message?.includes('auth/popup-closed-by-user')) {
         setIsAuthorizing(false);
         pendingOpenPickerRef.current = false;
         return;
       }
+      console.warn('Firebase Auth attempt failed:', fbErr);
 
       // If Firebase Auth fails, provide fallback to GIS
       try {

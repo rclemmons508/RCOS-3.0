@@ -149,7 +149,7 @@ export const initAuthListener = (
   });
 };
 
-export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessToken: string }> => {
+export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, googleProvider);
@@ -160,6 +160,15 @@ export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessT
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    // Normal user cancellation or popup closed before completing OAuth
+    if (
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request' ||
+      error?.message?.includes('auth/popup-closed-by-user')
+    ) {
+      console.info('Google sign-in popup was closed by user.');
+      return null;
+    }
     console.error('Firebase Google Sign-In error:', error);
     throw error;
   } finally {

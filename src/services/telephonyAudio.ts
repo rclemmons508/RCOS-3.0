@@ -158,6 +158,9 @@ export function playDisconnectTone(): void {
   }
 }
 
+let activeUtterance: SpeechSynthesisUtterance | null = null;
+let speechWatchdogTimeout: number | null = null;
+
 // Speech Synthesis for AI Receptionist (Aegis voice)
 export function speakAiResponse(text: string, onEnd?: () => void): void {
   if (!('speechSynthesis' in window)) {
@@ -166,6 +169,10 @@ export function speakAiResponse(text: string, onEnd?: () => void): void {
   }
 
   try {
+    if (speechWatchdogTimeout) {
+      clearTimeout(speechWatchdogTimeout);
+      speechWatchdogTimeout = null;
+    }
     window.speechSynthesis.cancel();
 
     // Clean markdown/bullet fragments
@@ -194,10 +201,32 @@ export function speakAiResponse(text: string, onEnd?: () => void): void {
       utterance.voice = preferredVoice;
     }
 
-    if (onEnd) {
-      utterance.onend = () => onEnd();
-      utterance.onerror = () => onEnd();
-    }
+    let hasEnded = false;
+    const finish = () => {
+      if (hasEnded) return;
+      hasEnded = true;
+      if (speechWatchdogTimeout) {
+        clearTimeout(speechWatchdogTimeout);
+        speechWatchdogTimeout = null;
+      }
+      activeUtterance = null;
+      if (onEnd) onEnd();
+    };
+
+    utterance.onend = finish;
+    utterance.onerror = finish;
+
+    // Keep reference in module scope so Chrome doesn't garbage collect mid-speech
+    activeUtterance = utterance;
+
+    // Safety watchdog: estimated duration based on text length
+    const wordCount = cleanText.split(/\s+/).length;
+    const maxDurationMs = Math.max(3000, wordCount * 500);
+    speechWatchdogTimeout = window.setTimeout(() => {
+      if (!hasEnded) {
+        finish();
+      }
+    }, maxDurationMs);
 
     window.speechSynthesis.speak(utterance);
   } catch (err) {
@@ -207,7 +236,16 @@ export function speakAiResponse(text: string, onEnd?: () => void): void {
 }
 
 export function stopSpeech(): void {
+  if (speechWatchdogTimeout) {
+    clearTimeout(speechWatchdogTimeout);
+    speechWatchdogTimeout = null;
+  }
+  activeUtterance = null;
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
+}
+
+export function isAiSpeaking(): boolean {
+  return Boolean(activeUtterance) || ('speechSynthesis' in window && window.speechSynthesis.speaking);
 }

@@ -31,7 +31,8 @@ import {
   Headphones, 
   ExternalLink,
   ChevronRight,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { CallRecord, CallTranscriptEntry, Job } from '../types';
 import { 
@@ -40,7 +41,8 @@ import {
   playConnectTone, 
   playDisconnectTone, 
   speakAiResponse, 
-  stopSpeech 
+  stopSpeech,
+  isAiSpeaking
 } from '../services/telephonyAudio';
 
 interface PhoneViewProps {
@@ -77,6 +79,23 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   const [dialedNumber, setDialedNumber] = useState('');
   const [outboundCallerName, setOutboundCallerName] = useState('Direct Outbound Client');
 
+  // Twilio Service Layer & Real-time Stream Config
+  const [telephonyConfig, setTelephonyConfig] = useState<{
+    phoneNumber: string;
+    phoneDidFormatted: string;
+    companyName: string;
+    receptionistName: string;
+    webhookUrl: string;
+    outboundTwimlUrl: string;
+    mediaStreamWsUrl: string;
+    statusUrl: string;
+    hasTwilioCarrier: boolean;
+    hasGeminiApiKey: boolean;
+  } | null>(null);
+  const [showTwilioModal, setShowTwilioModal] = useState(false);
+  const [outboundStatusNote, setOutboundStatusNote] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
   // Active call state
   const [activeCall, setActiveCall] = useState<ActiveCallState | null>(null);
   const [incomingCall, setIncomingCall] = useState<ActiveCallState | null>(null);
@@ -88,6 +107,39 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   const [selectedCallDetails, setSelectedCallDetails] = useState<CallRecord | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [hasCopiedWebhook, setHasCopiedWebhook] = useState(false);
+
+  // Live Voice Transcription & Web Speech Recognition State
+  const [interimUserSpeech, setInterimUserSpeech] = useState('');
+  const [isMicListening, setIsMicListening] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [isAiResponding, setIsAiResponding] = useState(false);
+
+  const recognitionRef = useRef<any>(null);
+  const isAiSpeakingRef = useRef<boolean>(false);
+  const activeCallRef = useRef<ActiveCallState | null>(null);
+  const isMutedRef = useRef<boolean>(false);
+  const activeSubTabRef = useRef<'switchboard' | 'customer_portal' | 'logs'>('switchboard');
+  const isHandlingSpeechRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+
+  useEffect(() => {
+    activeSubTabRef.current = activeSubTab;
+  }, [activeSubTab]);
+
+  // Fetch dynamic telephony configuration & Twilio media stream routes
+  useEffect(() => {
+    fetch('/api/telephony/config')
+      .then(res => res.json())
+      .then(data => setTelephonyConfig(data))
+      .catch(err => console.warn('Failed to load telephony config:', err));
+  }, []);
 
   // Customer Portal simulator state
   const [customerName, setCustomerName] = useState('');
@@ -107,7 +159,244 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   // Auto-scroll transcript to bottom
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeCall?.transcript]);
+  }, [activeCall?.transcript, interimUserSpeech]);
+
+  // Play AI response through speech synthesis and protect mic from self-hearing
+  const playAiSpeech = (text: string) => {
+    isAiSpeakingRef.current = true;
+    speakAiResponse(text, () => {
+      setTimeout(() => {
+        isAiSpeakingRef.current = false;
+      }, 500);
+    });
+  };
+
+  // Process finalized user speech (from either live microphone or manual text submit)
+  const handleUserSpokenFinalText = async (text: string) => {
+    const call = activeCallRef.current;
+    if (!text.trim() || !call || isHandlingSpeechRef.current) return;
+
+    // Check if AI is currently talking (suppress speaker audio feedback)
+    if (isAiSpeakingRef.current || isAiSpeaking()) {
+      return;
+    }
+
+    const cleanSpoken = text.trim();
+    isHandlingSpeechRef.current = true;
+    const isCustomerView = activeSubTabRef.current === 'customer_portal';
+
+    // In operator view with human answered, user is operator.
+    // In all AI answered calls or customer simulator, user is customer.
+    const speaker: 'customer' | 'operator' = (call.status === 'connected_user' && !isCustomerView)
+      ? 'operator'
+      : 'customer';
+
+    const timestamp = new Date().toLocaleTimeString();
+
+    // Append to live transcript immediately
+    setActiveCall(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        transcript: [
+          ...prev.transcript,
+          {
+            speaker,
+            text: cleanSpoken,
+            time: timestamp
+          }
+        ]
+      };
+    });
+
+    if (speaker === 'operator') {
+      // Send operator speech over WebSocket
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'OPERATOR_SPEECH',
+          callId: call.id,
+          text: cleanSpoken
+        }));
+      }
+      isHandlingSpeechRef.current = false;
+    } else {
+      // Caller spoke to AI or Operator
+      if (call.status === 'connected_ai') {
+        setIsAiResponding(true);
+        try {
+          const res = await fetch('/api/telephony/ai-respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              callId: call.id,
+              customerText: cleanSpoken,
+              conversationHistory: call.transcript,
+              whisperDirectives: call.whisperDirectives
+            })
+          });
+
+          const data = await res.json();
+          if (data.aiText) {
+            playAiSpeech(data.aiText);
+          }
+        } catch (err) {
+          console.error('Error generating AI response for customer:', err);
+        } finally {
+          setIsAiResponding(false);
+          isHandlingSpeechRef.current = false;
+        }
+      } else {
+        // Connected to human operator
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'CUSTOMER_SPEECH',
+            callId: call.id,
+            text: cleanSpoken
+          }));
+        }
+        isHandlingSpeechRef.current = false;
+      }
+    }
+  };
+
+  // Continuous Live Speech Recognition Controller
+  useEffect(() => {
+    if (!activeCall || isMuted) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+        recognitionRef.current = null;
+      }
+      setIsMicListening(false);
+      setInterimUserSpeech('');
+      return;
+    }
+
+    const SpeechRecognition = 
+      (window as any).SpeechRecognition || 
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSpeechError('Web Speech API is not supported in this browser. You can type in the speech console.');
+      return;
+    }
+
+    let isDestroyed = false;
+
+    const startRecognitionInstance = () => {
+      if (isDestroyed || !activeCallRef.current || isMutedRef.current) return;
+
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+          if (!isDestroyed) {
+            setIsMicListening(true);
+            setSpeechError(null);
+          }
+        };
+
+        let speechAccumulator = '';
+        let speechFinalizeTimeout: any = null;
+
+        recognition.onresult = (event: any) => {
+          if (isDestroyed || isMutedRef.current) return;
+
+          // If AI is currently speaking, ignore audio to avoid self-echoing
+          if (isAiSpeakingRef.current || isAiSpeaking()) {
+            setInterimUserSpeech('');
+            speechAccumulator = '';
+            return;
+          }
+
+          let currentInterim = '';
+          let newlyFinalized = '';
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcriptChunk = event.results[i][0]?.transcript || '';
+            if (event.results[i].isFinal) {
+              newlyFinalized += transcriptChunk + ' ';
+            } else {
+              currentInterim += transcriptChunk;
+            }
+          }
+
+          if (newlyFinalized) {
+            speechAccumulator = (speechAccumulator + ' ' + newlyFinalized).trim();
+          }
+
+          const combinedPreview = (speechAccumulator ? speechAccumulator + ' ' : '') + currentInterim;
+          if (combinedPreview.trim()) {
+            setInterimUserSpeech(combinedPreview.trim());
+          }
+
+          // Debounce finalization: wait 750ms of silence before submitting the full sentence/thought
+          // This prevents chopping sentences into single isolated words!
+          if (speechFinalizeTimeout) {
+            clearTimeout(speechFinalizeTimeout);
+          }
+
+          speechFinalizeTimeout = setTimeout(() => {
+            const fullUtterance = (speechAccumulator || currentInterim).trim();
+            if (fullUtterance && !isDestroyed && !isMutedRef.current) {
+              setInterimUserSpeech('');
+              speechAccumulator = '';
+              handleUserSpokenFinalText(fullUtterance);
+            }
+          }, 750);
+        };
+
+        recognition.onerror = (event: any) => {
+          if (isDestroyed) return;
+          console.warn('Telephony speech recognition error event:', event.error);
+          if (event.error === 'not-allowed') {
+            setSpeechError('Microphone permission required. Please allow microphone access in your browser to speak directly on the call.');
+            setIsMicListening(false);
+          } else if (event.error === 'no-speech') {
+            // Normal pause in speech, will auto-cycle
+          }
+        };
+
+        recognition.onend = () => {
+          if (isDestroyed) return;
+          setIsMicListening(false);
+          // Restart continuous recognition if call is ongoing and unmuted
+          if (activeCallRef.current && !isMutedRef.current) {
+            setTimeout(() => {
+              if (!isDestroyed && activeCallRef.current && !isMutedRef.current) {
+                startRecognitionInstance();
+              }
+            }, 300);
+          }
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+      } catch (err: any) {
+        console.warn('Failed to start telephony speech recognition instance:', err);
+        setIsMicListening(false);
+      }
+    };
+
+    startRecognitionInstance();
+
+    return () => {
+      isDestroyed = true;
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+        recognitionRef.current = null;
+      }
+      setIsMicListening(false);
+      setInterimUserSpeech('');
+    };
+  }, [Boolean(activeCall), isMuted]);
 
   // Connect to Telephony WebSocket Gateway
   useEffect(() => {
@@ -176,7 +465,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
 
               // If AI spoke greeting, synthesize speech
               if (data.greeting) {
-                speakAiResponse(data.greeting);
+                playAiSpeech(data.greeting);
               }
               break;
             }
@@ -185,6 +474,10 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
               const text = data.text;
               setActiveCall(prev => {
                 if (!prev) return null;
+                const last = prev.transcript[prev.transcript.length - 1];
+                if (last && last.speaker === 'ai' && last.text === text) {
+                  return prev;
+                }
                 return {
                   ...prev,
                   transcript: [
@@ -198,7 +491,30 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                 };
               });
               // Synthesize voice
-              speakAiResponse(text);
+              playAiSpeech(text);
+              break;
+            }
+
+            case 'CUSTOMER_SPEECH': {
+              const text = data.text;
+              setActiveCall(prev => {
+                if (!prev) return null;
+                const last = prev.transcript[prev.transcript.length - 1];
+                if (last && last.speaker === 'customer' && last.text === text) {
+                  return prev;
+                }
+                return {
+                  ...prev,
+                  transcript: [
+                    ...prev.transcript,
+                    {
+                      speaker: 'customer',
+                      text,
+                      time: new Date().toLocaleTimeString()
+                    }
+                  ]
+                };
+              });
               break;
             }
 
@@ -206,6 +522,10 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
               const text = data.text;
               setActiveCall(prev => {
                 if (!prev) return null;
+                const last = prev.transcript[prev.transcript.length - 1];
+                if (last && last.speaker === 'operator' && last.text === text) {
+                  return prev;
+                }
                 return {
                   ...prev,
                   transcript: [
@@ -224,6 +544,10 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
             case 'TRANSCRIPT_UPDATE': {
               setActiveCall(prev => {
                 if (!prev) return null;
+                const last = prev.transcript[prev.transcript.length - 1];
+                if (last && last.speaker === data.speaker && last.text === data.text) {
+                  return prev;
+                }
                 return {
                   ...prev,
                   transcript: [
@@ -231,7 +555,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                     {
                       speaker: data.speaker,
                       text: data.text,
-                      time: new Date().toLocaleTimeString()
+                      time: data.time || new Date().toLocaleTimeString()
                     }
                   ]
                 };
@@ -400,7 +724,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
     setIncomingCall(null);
     setCallDuration(0);
 
-    speakAiResponse(greeting);
+    playAiSpeech(greeting);
 
     // Notify server
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -415,6 +739,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   const handleTakeOverCall = () => {
     if (!activeCall) return;
     stopSpeech();
+    isAiSpeakingRef.current = false;
 
     setActiveCall(prev => {
       if (!prev) return null;
@@ -506,31 +831,8 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   const handleOperatorSendSpeech = (textToSend?: string) => {
     const text = (textToSend || operatorSpeechInput).trim();
     if (!text || !activeCall) return;
-
-    setActiveCall(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        transcript: [
-          ...prev.transcript,
-          {
-            speaker: 'operator',
-            text,
-            time: new Date().toLocaleTimeString()
-          }
-        ]
-      };
-    });
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'OPERATOR_SPEECH',
-        callId: activeCall.id,
-        text
-      }));
-    }
-
     setOperatorSpeechInput('');
+    handleUserSpokenFinalText(text);
   };
 
   // 7. Toggle Hold
@@ -546,6 +848,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
     } else {
       setActiveCall(prev => prev ? { ...prev, status: 'on_hold' } : null);
       stopSpeech();
+      isAiSpeakingRef.current = false;
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'HOLD_CALL', callId: activeCall.id }));
       }
@@ -559,6 +862,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
       stopRingRef.current = null;
     }
     stopSpeech();
+    isAiSpeakingRef.current = false;
     playDisconnectTone();
 
     const currentCall = activeCall || incomingCall;
@@ -644,11 +948,12 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
     }
   };
 
-  // 9. Outbound Dialing (from Keypad)
+  // 9. Outbound Dialing (from Keypad via Twilio Voice Service & Gemini Media Stream)
   const handleDialOutbound = async (dispatchAi = false) => {
     if (!dialedNumber.trim()) return;
 
     try {
+      setOutboundStatusNote("Initiating call and connecting TwiML stream to Gemini multi-modal AI agent...");
       const res = await fetch('/api/telephony/outbound', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -670,13 +975,21 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
         });
         setCallDuration(0);
 
+        if (data.message) {
+          setOutboundStatusNote(data.message);
+          setTimeout(() => setOutboundStatusNote(null), 9000);
+        }
+
         if (dispatchAi) {
           const greeting = `Hello, this is Aegis calling on behalf of ${orgName || 'RCOS Enterprise Solutions'}. How can we support your team today?`;
-          speakAiResponse(greeting);
+          playAiSpeech(greeting);
         }
+      } else if (data.error) {
+        setOutboundStatusNote(`Call failed: ${data.error}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Outbound dial error:', e);
+      setOutboundStatusNote(`Dialing error: ${e.message || 'Failed to place call'}`);
     }
   };
 
@@ -710,56 +1023,8 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
   const handleCustomerSpeak = async () => {
     if (!customerSpeechInput.trim() || !activeCall) return;
     const text = customerSpeechInput.trim();
-
-    // Append to transcript
-    setActiveCall(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        transcript: [
-          ...prev.transcript,
-          {
-            speaker: 'customer',
-            text,
-            time: new Date().toLocaleTimeString()
-          }
-        ]
-      };
-    });
-
     setCustomerSpeechInput('');
-
-    // If AI is handling call, trigger AI response
-    if (activeCall.status === 'connected_ai') {
-      try {
-        const res = await fetch('/api/telephony/ai-respond', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            callId: activeCall.id,
-            customerText: text,
-            conversationHistory: activeCall.transcript,
-            whisperDirectives: activeCall.whisperDirectives
-          })
-        });
-
-        const data = await res.json();
-        if (data.aiText) {
-          speakAiResponse(data.aiText);
-        }
-      } catch (err) {
-        console.error('Error generating AI response for customer:', err);
-      }
-    } else {
-      // Handled by operator; send message over WebSocket
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: 'CUSTOMER_SPEECH',
-          callId: activeCall.id,
-          text
-        }));
-      }
-    }
+    await handleUserSpokenFinalText(text);
   };
 
   // Copy Webhook URL
@@ -805,8 +1070,19 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
               <span className="text-slate-400 text-xs">Direct Inbound DID:</span>
-              <span className="font-mono text-xs font-bold text-white tracking-wider">+1 (888) 550-RCOS</span>
+              <span className="font-mono text-xs font-bold text-white tracking-wider">
+                {telephonyConfig?.phoneNumber || "+1 (888) 550-RCOS"}
+              </span>
             </div>
+
+            <button
+              onClick={() => setShowTwilioModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/80 text-xs font-medium text-cyan-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Twilio Voice Webhook & TwiML Media Streams Setup"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Twilio & TwiML Streams</span>
+            </button>
 
             <button
               onClick={handleCopyWebhook}
@@ -818,6 +1094,22 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Outbound Status Notification Banner */}
+        {outboundStatusNote && (
+          <div className="mt-4 p-3 rounded-xl bg-cyan-950/70 border border-cyan-500/40 text-cyan-200 text-xs flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <Radio className="w-4 h-4 text-cyan-400 animate-pulse flex-shrink-0" />
+              <span>{outboundStatusNote}</span>
+            </div>
+            <button
+              onClick={() => setOutboundStatusNote(null)}
+              className="text-cyan-400 hover:text-white font-bold text-xs cursor-pointer ml-2"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 pt-4 mt-4 border-t border-slate-800/80">
@@ -938,7 +1230,16 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                 <h3 className="text-base font-bold text-white mt-0.5">
                   {activeCall.callerName} <span className="text-xs text-slate-400 font-normal">({activeCall.company})</span>
                 </h3>
-                <span className="text-xs font-mono text-slate-400">{activeCall.phoneNumber}</span>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <span className="text-xs font-mono text-slate-400">{activeCall.phoneNumber}</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-cyan-950/80 text-cyan-300 border border-cyan-800/60 flex items-center gap-1">
+                    <Radio className="w-2.5 h-2.5 text-cyan-400 animate-pulse" />
+                    TwiML Media Stream: Gemini Multi-Modal
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900 text-slate-400 border border-slate-800">
+                    Bidirectional 8kHz PCMU &hArr; Gemini Live 16kHz
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1032,13 +1333,36 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
               </button>
             </div>
 
-            {/* Mic Toggle */}
+            {/* Mic Toggle & Real-time Channel Status */}
             <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800">
-              <div className="flex items-center gap-2">
-                {isMuted ? <MicOff className="w-4 h-4 text-rose-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+              <div className="flex items-center gap-2.5">
+                {isMuted ? (
+                  <MicOff className="w-4 h-4 text-rose-400" />
+                ) : (isAiSpeakingRef.current || isAiSpeaking()) ? (
+                  <Volume2 className="w-4 h-4 text-amber-400 animate-pulse" />
+                ) : isMicListening ? (
+                  <div className="relative flex items-center justify-center">
+                    <Mic className="w-4 h-4 text-[#76d418]" />
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#76d418] animate-ping" />
+                  </div>
+                ) : (
+                  <Mic className="w-4 h-4 text-slate-400" />
+                )}
                 <div>
-                  <span className="text-xs font-bold text-white block">Operator Microphone</span>
-                  <span className="text-[10px] text-slate-400">{isMuted ? 'Muted' : 'Live Audio Ingest'}</span>
+                  <span className="text-xs font-bold text-white block">
+                    {activeCall.status === 'connected_user' && activeSubTab !== 'customer_portal' 
+                      ? 'Operator Live Microphone' 
+                      : 'Live Voice Channel'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {isMuted 
+                      ? 'Muted (Audio input paused)' 
+                      : (isAiSpeakingRef.current || isAiSpeaking()) 
+                      ? 'Aegis Speaking (Speaker suppression)' 
+                      : isMicListening 
+                      ? '● Live mic active — speak anytime' 
+                      : 'Connecting microphone...'}
+                  </span>
                 </div>
               </div>
 
@@ -1052,6 +1376,22 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Speech API Warning Banner */}
+          {speechError && (
+            <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>{speechError}</span>
+              </div>
+              <button 
+                onClick={() => setSpeechError(null)} 
+                className="text-amber-400 hover:text-amber-200 text-xs font-bold cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {/* Whisper Drawer */}
           {showWhisperBox && (
@@ -1091,7 +1431,10 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                 <MessageSquare className="w-3.5 h-3.5 text-[#76d418]" />
                 <span>Live Real-Time Call Transcription</span>
               </span>
-              <span className="text-[11px] text-slate-500">Auto-transcribed stream</span>
+              <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                {isMicListening && <span className="w-2 h-2 rounded-full bg-[#76d418] animate-pulse" />}
+                <span>{isMicListening ? 'Live mic stream synced' : 'Auto-transcribed stream'}</span>
+              </span>
             </div>
 
             <div className="h-64 overflow-y-auto bg-[#060a08] border border-slate-800 rounded-xl p-4 space-y-3 font-sans text-xs">
@@ -1135,6 +1478,40 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                   </div>
                 </div>
               ))}
+
+              {/* Interim Real-Time Transcription Bubble (Operator / Caller Speaking) */}
+              {interimUserSpeech && (
+                <div 
+                  className={`flex flex-col ${
+                    activeCall.status === 'connected_user' && activeSubTab !== 'customer_portal' 
+                      ? 'items-end' 
+                      : 'items-start'
+                  } animate-pulse`}
+                >
+                  <div className="flex items-center gap-1.5 text-[10px] text-[#76d418] mb-1 font-bold">
+                    <span className="w-2 h-2 rounded-full bg-[#76d418] animate-ping" />
+                    <span>
+                      {activeCall.status === 'connected_user' && activeSubTab !== 'customer_portal' 
+                        ? 'Operator (You) speaking...' 
+                        : `${activeCall.callerName || 'Caller'} speaking...`}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl max-w-lg bg-[#76d418]/10 border border-[#76d418]/40 text-[#76d418] text-xs italic">
+                    "{interimUserSpeech}..."
+                  </div>
+                </div>
+              )}
+
+              {/* AI Generating Indicator */}
+              {isAiResponding && (
+                <div className="flex flex-col items-center text-center animate-pulse py-1">
+                  <div className="flex items-center gap-2 text-[11px] text-cyan-400 font-bold bg-cyan-950/40 border border-cyan-500/30 px-3 py-1.5 rounded-full">
+                    <Bot className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                    <span>Aegis AI Receptionist is formulating voice response...</span>
+                  </div>
+                </div>
+              )}
+
               <div ref={transcriptEndRef} />
             </div>
           </div>
@@ -1147,7 +1524,7 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
               onChange={(e) => setOperatorSpeechInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleOperatorSendSpeech()}
               placeholder={activeCall.status === 'connected_user' 
-                ? "Speak to customer (type message or speak via microphone)..." 
+                ? "Speak to customer (live microphone active, or type message here)..." 
                 : "Type message as operator (or click 'Take Over' to speak directly)..."}
               className="flex-1 h-10 bg-[#060a08] border border-slate-800 rounded-xl px-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#76d418]"
             />
@@ -1462,15 +1839,54 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
           {/* Interactive Customer Voice / Speech Console */}
           {activeCall && (
             <div className="p-5 bg-slate-950 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-white flex items-center gap-2">
-                  <Mic className="w-4 h-4 text-[#76d418]" />
-                  <span>Customer Audio Channel</span>
-                </span>
-                <span className="text-slate-400 font-mono">
-                  {activeCall.answeredBy === 'ai' ? 'Talking with Aegis AI Receptionist' : 'Talking with Operator'}
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  {isMuted ? (
+                    <MicOff className="w-4 h-4 text-rose-400" />
+                  ) : (isAiSpeakingRef.current || isAiSpeaking()) ? (
+                    <Volume2 className="w-4 h-4 text-amber-400 animate-pulse" />
+                  ) : isMicListening ? (
+                    <div className="relative flex items-center justify-center">
+                      <Mic className="w-4 h-4 text-[#76d418]" />
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#76d418] animate-ping" />
+                    </div>
+                  ) : (
+                    <Mic className="w-4 h-4 text-slate-400" />
+                  )}
+                  <span className="font-bold text-white">Customer Live Audio Channel</span>
+                  <span className="text-[11px] text-[#76d418] font-mono">
+                    {isMuted 
+                      ? '(Muted)' 
+                      : (isAiSpeakingRef.current || isAiSpeaking()) 
+                      ? '(Aegis Speaking)' 
+                      : isMicListening 
+                      ? '(Live Mic Listening)' 
+                      : ''}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-400 font-mono text-[11px]">
+                    {activeCall.answeredBy === 'ai' ? 'Talking with Aegis AI Receptionist' : 'Talking with Operator'}
+                  </span>
+                  <button
+                    onClick={() => setIsMuted(!isMuted)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
+                      isMuted ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    {isMuted ? 'Unmute Mic' : 'Mute Mic'}
+                  </button>
+                </div>
               </div>
+
+              {/* Live interim speech preview */}
+              {interimUserSpeech && (
+                <div className="p-3 bg-[#76d418]/10 border border-[#76d418]/30 rounded-xl text-xs text-[#76d418] flex items-center gap-2 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-[#76d418] animate-ping" />
+                  <span className="font-mono text-[11px] font-bold">Transcribing Live:</span>
+                  <span className="italic">"{interimUserSpeech}..."</span>
+                </div>
+              )}
 
               {/* Speech input */}
               <div className="flex items-center gap-2">
@@ -1479,7 +1895,9 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                   value={customerSpeechInput}
                   onChange={(e) => setCustomerSpeechInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleCustomerSpeak()}
-                  placeholder="Speak or type what you would say as a customer (e.g., 'Hello, I need to schedule a meeting with your technical team')..."
+                  placeholder={isMicListening 
+                    ? "Speak into your microphone hands-free, or type customer statement here..." 
+                    : "Type what you would say as a customer (e.g., 'Hello, I need to schedule a meeting')..."}
                   className="flex-1 h-11 bg-[#060a08] border border-slate-800 rounded-xl px-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#76d418]"
                 />
 
@@ -1715,6 +2133,158 @@ export const PhoneView: React.FC<PhoneViewProps> = ({
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-colors cursor-pointer"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. MODAL: Twilio Voice & TwiML Media Stream Setup Guide */}
+      {showTwilioModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#091016] border border-cyan-500/40 rounded-2xl max-w-3xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-cyan-950/80 border border-cyan-700/60 flex items-center justify-center text-cyan-400">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Twilio Voice & Gemini Multi-Modal Stream Architecture</h3>
+                  <p className="text-xs text-slate-400">Real-time bidirectional audio pipeline between Twilio PSTN and Gemini Live API</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTwilioModal(false)}
+                className="text-slate-400 hover:text-white text-xs font-semibold px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+              {/* Architecture Status Badge */}
+              <div className="p-3.5 rounded-xl bg-[#060a08] border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-300">Carrier Service Status:</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold font-mono border ${
+                    telephonyConfig?.hasTwilioCarrier
+                      ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/40'
+                      : 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40'
+                  }`}>
+                    {telephonyConfig?.hasTwilioCarrier ? 'TWILIO CARRIER LINKED' : 'TWIML STREAM READY (VIRTUAL / LIVE)'}
+                  </span>
+                </div>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
+                  The service layer routes both inbound and outbound voice calls using Twilio's bidirectional <code>&lt;Connect&gt;&lt;Stream&gt;</code> protocol. 
+                  Incoming 8kHz mu-law audio is transcoded into 16kHz linear PCM for the Gemini Live agent, and Gemini's responses are streamed back to the phone line with real-time barge-in support.
+                </p>
+              </div>
+
+              {/* Endpoint URLs */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-white text-xs uppercase tracking-wider text-cyan-400">Webhooks & Media Stream URLs</h4>
+
+                {/* 1. Outbound TwiML Stream */}
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white">1. Outbound TwiML Stream Endpoint:</span>
+                    <button
+                      onClick={() => {
+                        const url = telephonyConfig?.outboundTwimlUrl || `${window.location.origin}/api/telephony/twiml/outbound`;
+                        navigator.clipboard.writeText(url);
+                        setCopiedKey('outbound');
+                        setTimeout(() => setCopiedKey(null), 2000);
+                      }}
+                      className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono text-[10px] cursor-pointer"
+                    >
+                      {copiedKey === 'outbound' ? <Check className="w-3 h-3 text-[#76d418]" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedKey === 'outbound' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                  <div className="font-mono text-[11px] text-cyan-300 bg-[#060a08] p-2 rounded-lg break-all border border-slate-800">
+                    {telephonyConfig?.outboundTwimlUrl || `${window.location.origin}/api/telephony/twiml/outbound`}
+                  </div>
+                  <span className="text-[10px] text-slate-500">Twilio calls this URL to fetch the TwiML Stream attaching the outbound recipient to the Gemini agent.</span>
+                </div>
+
+                {/* 2. Inbound Voice Webhook */}
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white">2. Inbound Voice Webhook ("A Call Comes In"):</span>
+                    <button
+                      onClick={() => {
+                        const url = telephonyConfig?.webhookUrl || `${window.location.origin}/api/telephony/incoming`;
+                        navigator.clipboard.writeText(url);
+                        setCopiedKey('inbound');
+                        setTimeout(() => setCopiedKey(null), 2000);
+                      }}
+                      className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono text-[10px] cursor-pointer"
+                    >
+                      {copiedKey === 'inbound' ? <Check className="w-3 h-3 text-[#76d418]" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedKey === 'inbound' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                  <div className="font-mono text-[11px] text-cyan-300 bg-[#060a08] p-2 rounded-lg break-all border border-slate-800">
+                    {telephonyConfig?.webhookUrl || `${window.location.origin}/api/telephony/incoming`}
+                  </div>
+                  <span className="text-[10px] text-slate-500">Set this in your Twilio Console under your Phone Number's Voice configuration (HTTP POST).</span>
+                </div>
+
+                {/* 3. Bidirectional WebSocket Media Stream */}
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white">3. Bidirectional Audio WebSocket (Media Stream):</span>
+                    <button
+                      onClick={() => {
+                        const wsUrl = telephonyConfig?.mediaStreamWsUrl || `${window.location.origin.replace('http', 'ws')}/api/telephony/media-stream`;
+                        navigator.clipboard.writeText(wsUrl);
+                        setCopiedKey('ws');
+                        setTimeout(() => setCopiedKey(null), 2000);
+                      }}
+                      className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono text-[10px] cursor-pointer"
+                    >
+                      {copiedKey === 'ws' ? <Check className="w-3 h-3 text-[#76d418]" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedKey === 'ws' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                  <div className="font-mono text-[11px] text-emerald-400 bg-[#060a08] p-2 rounded-lg break-all border border-slate-800">
+                    {telephonyConfig?.mediaStreamWsUrl || `${window.location.origin.replace('http', 'ws')}/api/telephony/media-stream`}
+                  </div>
+                  <span className="text-[10px] text-slate-500">Embedded automatically inside the generated TwiML &lt;Stream&gt; tags.</span>
+                </div>
+              </div>
+
+              {/* TwiML Stream XML Sample */}
+              <div className="space-y-1.5 pt-1">
+                <h4 className="font-bold text-white text-xs uppercase tracking-wider text-slate-300">Generated TwiML Stream Specification</h4>
+                <div className="p-3 rounded-xl bg-[#060a08] border border-slate-800 font-mono text-[10px] text-slate-300 overflow-x-auto">
+                  <pre>{`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Matthew">Connecting you to Aegis Gemini Multi-Modal AI Agent.</Say>
+  <Connect>
+    <Stream url="${telephonyConfig?.mediaStreamWsUrl || 'wss://your-domain/api/telephony/media-stream'}">
+      <Parameter name="callId" value="outbound-1727038..." />
+      <Parameter name="direction" value="outbound" />
+      <Parameter name="agent" value="gemini-multimodal" />
+    </Stream>
+  </Connect>
+</Response>`}</pre>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">
+                To route calls to external cellular phones, set <code>TWILIO_ACCOUNT_SID</code> and <code>TWILIO_AUTH_TOKEN</code> in your environment.
+              </span>
+              <button
+                onClick={() => setShowTwilioModal(false)}
+                className="px-4 py-2 rounded-xl bg-[#76d418] hover:bg-[#66bd14] text-slate-950 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Done
               </button>
             </div>
           </div>

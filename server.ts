@@ -4,6 +4,11 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
+import { 
+  TwilioVoiceService, 
+  buildTwiMLWithMediaStream, 
+  type TelephonyCallSession 
+} from "./src/services/twilioVoiceService";
 
 let geminiClient: GoogleGenAI | null = null;
 
@@ -99,46 +104,7 @@ async function startServer() {
   const wssLive = new WebSocketServer({ noServer: true });
   const wssTelephony = new WebSocketServer({ noServer: true });
 
-  server.on("upgrade", (request, socket, head) => {
-    try {
-      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
-      if (url.pathname === "/api/live") {
-        wssLive.handleUpgrade(request, socket, head, (ws) => {
-          wssLive.emit("connection", ws, request);
-        });
-      } else if (url.pathname === "/api/telephony/stream") {
-        wssTelephony.handleUpgrade(request, socket, head, (ws) => {
-          wssTelephony.emit("connection", ws, request);
-        });
-      } else {
-        socket.destroy();
-      }
-    } catch {
-      socket.destroy();
-    }
-  });
-
-  const PORT = 3000;
-
-  app.use(express.json({ limit: "10mb" }));
-  app.use(express.urlencoded({ extended: true }));
-
   // In-memory active telephony calls registry
-  interface TelephonyCallSession {
-    id: string;
-    callerName: string;
-    phoneNumber: string;
-    company: string;
-    status: 'ringing' | 'connected_user' | 'connected_ai' | 'on_hold' | 'ended';
-    answeredBy: 'human' | 'ai' | null;
-    startTime: number;
-    transcript: { speaker: 'customer' | 'operator' | 'ai' | 'system'; text: string; time: string }[];
-    whisperDirectives: string[];
-    summary?: string;
-    sentiment?: string;
-    actionItems?: string[];
-  }
-
   const activeTelephonyCalls = new Map<string, TelephonyCallSession>();
   const operatorClients = new Set<WebSocket>();
   const callerClients = new Map<string, WebSocket>();
@@ -151,6 +117,39 @@ async function startServer() {
       }
     }
   }
+
+  // Initialize Twilio Voice Service with real-time bidirectional media streaming to Gemini
+  const twilioVoiceService = new TwilioVoiceService(
+    activeTelephonyCalls,
+    broadcastToOperators,
+    getGeminiClient
+  );
+
+  server.on("upgrade", (request, socket, head) => {
+    try {
+      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+      if (url.pathname === "/api/live") {
+        wssLive.handleUpgrade(request, socket, head, (ws) => {
+          wssLive.emit("connection", ws, request);
+        });
+      } else if (url.pathname === "/api/telephony/stream") {
+        wssTelephony.handleUpgrade(request, socket, head, (ws) => {
+          wssTelephony.emit("connection", ws, request);
+        });
+      } else if (url.pathname === "/api/telephony/media-stream") {
+        twilioVoiceService.handleUpgrade(request, socket, head);
+      } else {
+        socket.destroy();
+      }
+    } catch {
+      socket.destroy();
+    }
+  });
+
+  const PORT = 3000;
+
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ extended: true }));
 
   // API Health Endpoint (Never returns actual keys)
   app.get("/api/health", (_req, res) => {
@@ -295,14 +294,22 @@ async function startServer() {
   app.get("/api/telephony/config", (req, res) => {
     const host = req.get("host") || `localhost:${PORT}`;
     const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
+    const wsProto = protocol === "https" ? "wss" : "ws";
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const hasTwilioCarrier = Boolean(accountSid && accountSid.startsWith("AC") && process.env.TWILIO_AUTH_TOKEN);
+
     res.json({
-      phoneNumber: "+1 (888) 550-RCOS",
+      phoneNumber: process.env.TWILIO_PHONE_NUMBER || "+1 (888) 550-RCOS",
       phoneDidFormatted: "+1 (888) 550-7267",
       companyName: "RCOS Enterprise Solutions",
-      receptionistName: "Aegis AI Receptionist",
+      receptionistName: "Aegis Gemini Multi-Modal AI Agent",
       webhookUrl: `${protocol}://${host}/api/telephony/incoming`,
+      outboundTwimlUrl: `${protocol}://${host}/api/telephony/twiml/outbound`,
+      mediaStreamWsUrl: `${wsProto}://${host}/api/telephony/media-stream`,
       statusUrl: `${protocol}://${host}/api/telephony/status`,
-      supportedModes: ["user_answer", "ai_receptionist", "auto_fallback"],
+      supportedModes: ["twilio_bidirectional_stream", "gemini_multimodal_agent", "user_answer", "auto_fallback"],
+      hasTwilioCarrier,
+      hasGeminiApiKey: Boolean(process.env.GEMINI_API_KEY),
       activeCalls: Array.from(activeTelephonyCalls.values())
     });
   });
@@ -337,7 +344,7 @@ async function startServer() {
         answeredBy: null,
         startTime: Date.now(),
         transcript: [
-          { speaker: "system", text: `Incoming call received from ${callerNumber} (${callerName}). Telephone line ringing...`, time: new Date().toLocaleTimeString() }
+          { speaker: "system", text: `Incoming call received from ${callerNumber} (${callerName}). Attached to Gemini multi-modal media stream.`, time: new Date().toLocaleTimeString() }
         ],
         whisperDirectives: []
       };
@@ -353,7 +360,7 @@ async function startServer() {
         call: newCall
       });
 
-      // If requested by Twilio (CallSid present or urlencoded/xml), return production TwiML
+      // If requested by Twilio, return bidirectional TwiML Media Stream connecting to Gemini
       const isTwilio = Boolean(
         req.body.CallSid || 
         req.headers["x-twilio-signature"] ||
@@ -362,16 +369,7 @@ async function startServer() {
       );
 
       if (isTwilio) {
-        const actionUrl = `/api/telephony/ai-respond?callId=${encodeURIComponent(callId)}`;
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Matthew">Thank you for calling RCOS Enterprise Solutions. Connecting your call to our operational team or AI receptionist.</Say>
-  <Gather input="speech" timeout="5" speechTimeout="auto" action="${escapeXml(actionUrl)}" method="POST">
-    <Say voice="Polly.Matthew">Please state how we may assist you today.</Say>
-  </Gather>
-  <Say voice="Polly.Matthew">We did not receive any input. Please hold while we route you to our operational lead.</Say>
-  <Redirect method="POST">${escapeXml(actionUrl)}</Redirect>
-</Response>`;
+        const twiml = twilioVoiceService.createInboundTwiML(req, callId, callerNumber);
         res.type("text/xml").send(twiml);
       } else {
         res.json({
@@ -382,6 +380,48 @@ async function startServer() {
     } catch (err: any) {
       console.error("Error processing incoming call:", err);
       res.status(500).json({ error: "Failed to process incoming call" });
+    }
+  });
+
+  // Twilio Outbound Call TwiML Webhook Endpoint
+  // Twilio requests this URL when an outbound call connects, instructing it to attach to the Gemini Media Stream
+  app.all("/api/telephony/twiml/outbound", (req, res) => {
+    try {
+      const callId = (req.query?.callId as string) || req.body?.callId || req.body?.CallSid || `outbound-${Date.now()}`;
+      const to = (req.query?.to as string) || req.body?.To || req.body?.phoneNumber || "+15552348901";
+      const purpose = (req.query?.purpose as string) || req.body?.purpose || "Executive Direct Telephony Call";
+
+      const twiml = twilioVoiceService.createOutboundTwiML(req, callId, to, purpose);
+      res.type("text/xml").send(twiml);
+    } catch (err: any) {
+      console.error("Error generating outbound TwiML:", err);
+      res.status(500).type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Unable to establish Gemini AI media stream.</Say></Response>`);
+    }
+  });
+
+  // Twilio Status Callback Endpoint (initiated, ringing, answered, completed)
+  app.all("/api/telephony/status", (req, res) => {
+    try {
+      const callSid = req.body?.CallSid || req.query?.callSid;
+      const callStatus = req.body?.CallStatus || req.query?.callStatus;
+      const callId = (req.query?.callId as string) || callSid;
+
+      if (callId && activeTelephonyCalls.has(callId)) {
+        const call = activeTelephonyCalls.get(callId)!;
+        if (callStatus === "in-progress" || callStatus === "answered") {
+          call.status = "connected_ai";
+        } else if (["completed", "busy", "no-answer", "failed", "canceled"].includes(callStatus)) {
+          call.status = "ended";
+          broadcastToOperators({
+            type: "CALL_ENDED",
+            callId: call.id,
+            callStatus
+          });
+        }
+      }
+      res.sendStatus(200);
+    } catch {
+      res.sendStatus(200);
     }
   });
 
@@ -493,17 +533,27 @@ ${whisperContext}`;
 
       // Update call session transcript if activeCall is available
       if (activeCall) {
+        const timeNow = new Date().toLocaleTimeString();
         if (customerText) {
           activeCall.transcript.push({
             speaker: "customer",
             text: customerText,
-            time: new Date().toLocaleTimeString()
+            time: timeNow
+          });
+
+          // Broadcast customer speech to connected operators
+          broadcastToOperators({
+            type: "TRANSCRIPT_UPDATE",
+            callId: activeCall.id,
+            speaker: "customer",
+            text: customerText,
+            time: timeNow
           });
         }
         activeCall.transcript.push({
           speaker: "ai",
           text: aiText,
-          time: new Date().toLocaleTimeString()
+          time: timeNow
         });
 
         // Broadcast speech update to connected clients
@@ -756,38 +806,19 @@ Return pure JSON matching this exact structure:
     }
   });
 
-  // Telephony Outbound Call Endpoint
-  app.post("/api/telephony/outbound", (req, res) => {
+  // Telephony Outbound Call Endpoint (utilizes Twilio Voice Service & Gemini Media Stream)
+  app.post("/api/telephony/outbound", async (req, res) => {
     try {
-      const { phoneNumber, callerName = "Outbound Call", dispatchAi = false, purpose } = req.body;
-      const callId = `outbound-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-
-      const newCall: TelephonyCallSession = {
-        id: callId,
+      const { phoneNumber, callerName = "Outbound Call", purpose } = req.body;
+      const result = await twilioVoiceService.initiateOutboundCall({
+        destinationNumber: phoneNumber,
         callerName,
-        phoneNumber,
-        company: "Outbound Telephony Dispatch",
-        status: dispatchAi ? "connected_ai" : "connected_user",
-        answeredBy: dispatchAi ? "ai" : "human",
-        startTime: Date.now(),
-        transcript: [
-          { speaker: "system", text: `Outbound connection established to ${phoneNumber}. Purpose: ${purpose || 'General Direct Telephony'}.`, time: new Date().toLocaleTimeString() }
-        ],
-        whisperDirectives: []
-      };
-
-      activeTelephonyCalls.set(callId, newCall);
-
-      broadcastToOperators({
-        type: "OUTBOUND_CALL_STARTED",
-        call: newCall
+        purpose,
+        req
       });
-
-      res.json({
-        status: "connected",
-        call: newCall
-      });
+      res.json(result);
     } catch (err: any) {
+      console.error("Outbound call dispatch error:", err);
       res.status(500).json({ error: err.message || "Failed to initiate outbound call" });
     }
   });
