@@ -125,26 +125,41 @@ async function startServer() {
     getGeminiClient
   );
 
-  server.on("upgrade", (request, socket, head) => {
-    try {
-      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
-      if (url.pathname === "/api/live") {
-        wssLive.handleUpgrade(request, socket, head, (ws) => {
-          wssLive.emit("connection", ws, request);
-        });
-      } else if (url.pathname === "/api/telephony/stream") {
-        wssTelephony.handleUpgrade(request, socket, head, (ws) => {
-          wssTelephony.emit("connection", ws, request);
-        });
-      } else if (url.pathname === "/api/telephony/media-stream") {
-        twilioVoiceService.handleUpgrade(request, socket, head);
-      } else {
-        socket.destroy();
-      }
-    } catch {
+ server.on("upgrade", async (request, socket, head) => {
+  try {
+    const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+
+    // Basic token check – requires a token in the query string or Authorization header
+    // Example: ws://localhost:3000/api/live?token=YOUR_FIREBASE_ID_TOKEN
+    const token =
+      url.searchParams.get("token") ||
+      (request.headers.authorization || "").replace("Bearer ", "");
+
+    if (!token || token.length < 20) {
+      console.warn("WebSocket connection rejected: missing or invalid token");
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    if (url.pathname === "/api/live") {
+      wssLive.handleUpgrade(request, socket, head, (ws) => {
+        wssLive.emit("connection", ws, request);
+      });
+    } else if (url.pathname === "/api/telephony/stream") {
+      wssTelephony.handleUpgrade(request, socket, head, (ws) => {
+        wssTelephony.emit("connection", ws, request);
+      });
+    } else if (url.pathname === "/api/telephony/media-stream") {
+      twilioVoiceService.handleUpgrade(request, socket, head);
+    } else {
       socket.destroy();
     }
-  });
+  } catch (err) {
+    console.error("WebSocket upgrade error:", err);
+    socket.destroy();
+  }
+}); 
 
   const PORT = 3000;
 
