@@ -22,8 +22,8 @@ import { GmailView } from './components/GmailView';
 import { TeamMessagingView } from './components/TeamMessagingView';
 import { employeeMessagingService } from './services/employeeMessagingService';
 import { GoogleCalendarEvent, GooglePickerDocument } from './services/googleWorkspace';
-import { auth, googleProvider } from './services/firebaseAuth';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { auth, googleProvider, setManualAccessToken } from './services/firebaseAuth';
+import { signInWithPopup, signOut, onAuthStateChanged, GoogleAuthProvider, User } from 'firebase/auth';
 import { userDataService } from './services/userDataService';
 
 import { 
@@ -116,7 +116,13 @@ export const App: React.FC = () => {
 
   const handleGoogleSignIn = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      // Publish the consented token into the shared Workspace session so the
+      // Gmail hub, Drive sync and Calendar work off this single sign-in.
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setManualAccessToken(credential.accessToken);
+      }
     } catch (err) {
       console.error('Sign-in failed:', err);
     }
