@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
+    "@vercel/analytics": "^2.0.1",
     "canvas-confetti": "^1.9.3",
     "clsx": "^2.1.1",
     "express": "^5.2.1",
