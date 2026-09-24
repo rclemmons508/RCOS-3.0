@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Header } from './components/Header';
 import { BottomNav, MainNavTab } from './components/BottomNav';
 import { MoreMenuModal } from './components/MoreMenuModal';
@@ -617,6 +618,9 @@ export const App: React.FC = () => {
         onClose={() => setIsCreateAgentModalOpen(false)}
         onCreate={handleProvisionAgent}
       />
+      
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 };
