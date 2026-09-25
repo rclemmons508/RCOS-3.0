@@ -90,55 +90,55 @@ export const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
 
   // Firestore Persistence for Jobs, Calls, Agents, and Clients
-React.useEffect(() => {
-  if (!currentUser) return;
+  React.useEffect(() => {
+    if (!currentUser) return;
 
-  const unsubJobs = userDataService.subscribeToJobs(currentUser.uid, (firestoreJobs) => {
-    if (firestoreJobs && firestoreJobs.length > 0) {
-      setJobs(firestoreJobs);
-    } else {
-      // Seed initial jobs if none exist yet
-      INITIAL_JOBS.forEach((j) => {
-        userDataService.saveJob(currentUser.uid, j);
-      });
-    }
-  });
+    const unsubJobs = userDataService.subscribeToJobs(currentUser.uid, (firestoreJobs) => {
+      if (firestoreJobs && firestoreJobs.length > 0) {
+        setJobs(firestoreJobs);
+      } else {
+        // Seed initial jobs if none exist yet
+        INITIAL_JOBS.forEach((j) => {
+          userDataService.saveJob(currentUser.uid, j);
+        });
+      }
+    });
 
-  const unsubCalls = userDataService.subscribeToCalls(currentUser.uid, (firestoreCalls) => {
-    if (firestoreCalls && firestoreCalls.length > 0) {
-      setCalls(firestoreCalls);
-    }
-  });
+    const unsubCalls = userDataService.subscribeToCalls(currentUser.uid, (firestoreCalls) => {
+      if (firestoreCalls && firestoreCalls.length > 0) {
+        setCalls(firestoreCalls);
+      }
+    });
 
-  const unsubAgents = userDataService.subscribeToAgents(currentUser.uid, (firestoreAgents) => {
-    if (firestoreAgents && firestoreAgents.length > 0) {
-      setAgents(firestoreAgents);
-    } else {
-      // Seed initial agents if none exist yet
-      INITIAL_AGENTS.forEach((a) => {
-        userDataService.saveAgent(currentUser.uid, a);
-      });
-    }
-  });
+    const unsubAgents = userDataService.subscribeToAgents(currentUser.uid, (firestoreAgents) => {
+      if (firestoreAgents && firestoreAgents.length > 0) {
+        setAgents(firestoreAgents);
+      } else {
+        // Seed initial agents if none exist yet
+        INITIAL_AGENTS.forEach((a) => {
+          userDataService.saveAgent(currentUser.uid, a);
+        });
+      }
+    });
 
-  const unsubClients = userDataService.subscribeToClients(currentUser.uid, (firestoreClients) => {
-    if (firestoreClients && firestoreClients.length > 0) {
-      setClients(firestoreClients);
-    } else {
-      // Seed initial clients if none exist yet
-      INITIAL_CLIENTS.forEach((c) => {
-        userDataService.saveClient(currentUser.uid, c);
-      });
-    }
-  });
+    const unsubClients = userDataService.subscribeToClients(currentUser.uid, (firestoreClients) => {
+      if (firestoreClients && firestoreClients.length > 0) {
+        setClients(firestoreClients);
+      } else {
+        // Seed initial clients if none exist yet
+        INITIAL_CLIENTS.forEach((c) => {
+          userDataService.saveClient(currentUser.uid, c);
+        });
+      }
+    });
 
-  return () => {
-    unsubJobs();
-    unsubCalls();
-    unsubAgents();
-    unsubClients();
-  };
-}, [currentUser]);
+    return () => {
+      unsubJobs();
+      unsubCalls();
+      unsubAgents();
+      unsubClients();
+    };
+  }, [currentUser]);
 
   const handleGoogleSignIn = async () => {
     try {
@@ -214,7 +214,7 @@ React.useEffect(() => {
     };
     setJobs(prev => [newJob, ...prev]);
 
-    logAction('DIRECT_AGENT_TASK', `Dispatched workload to ${targetAgent?.name}: "${taskDescription}"`);
+    logAction('DIRECT_AGENT_TASK', `Dispatched workload to \( {targetAgent?.name}: " \){taskDescription}"`);
   };
 
   const handleTriggerWorkflow = (workflowId: string) => {
@@ -308,38 +308,34 @@ React.useEffect(() => {
   };
 
   const handleCreateClient = (client: Partial<Client>) => {
-  const newClient: Client = {
-    id: `client-${Date.now()}`,
-    companyName: client.companyName || 'New Client',
-    industry: client.industry || 'Technology',
-    accountEmail: client.accountEmail || 'contact@client.com',
-    phone: client.phone || '+1 (555) 000-0000',
-    status: client.status || 'Active Enterprise',
-    headquarters: client.headquarters || 'Corporate HQ',
-    contractValue: client.contractValue || '$50,000 / yr',
-    onboardingDate: client.onboardingDate || 'Sep 2026',
-    primaryContact: client.primaryContact || {
-      name: 'Primary Contact',
-      role: 'Operations Lead',
-      email: 'contact@client.com',
-      phone: '+1 (555) 000-0000',
-      preferredChannel: 'Email'
-    },
-    assignedAgent: client.assignedAgent || 'Compliance & Security Audit',
-    notes: client.notes || 'Registered in RCOS enterprise directory.',
-    activeJobsCount: 0
-  };
-
-  setClients(prev => [newClient, ...prev]);
-
-  if (currentUser) {
-    userDataService.saveClient(currentUser.uid, newClient);
-  }
-
-  logAction('CREATE_CLIENT', `Registered client organization: ${newClient.companyName}`);
-};
+    const newClient: Client = {
+      id: `client-${Date.now()}`,
+      companyName: client.companyName || 'New Client',
+      industry: client.industry || 'Technology',
+      accountEmail: client.accountEmail || 'contact@client.com',
+      phone: client.phone || '+1 (555) 000-0000',
+      status: client.status || 'Active Enterprise',
+      headquarters: client.headquarters || 'Corporate HQ',
+      contractValue: client.contractValue || '$50,000 / yr',
+      onboardingDate: client.onboardingDate || 'Sep 2026',
+      primaryContact: client.primaryContact || {
+        name: 'Primary Contact',
+        role: 'Operations Lead',
+        email: 'contact@client.com',
+        phone: '+1 (555) 000-0000',
+        preferredChannel: 'Email'
+      },
+      assignedAgent: client.assignedAgent || 'Compliance & Security Audit',
+      notes: client.notes || 'Registered in RCOS enterprise directory.',
+      activeJobsCount: 0
+    };
 
     setClients(prev => [newClient, ...prev]);
+
+    if (currentUser) {
+      userDataService.saveClient(currentUser.uid, newClient);
+    }
+
     logAction('CREATE_CLIENT', `Registered client organization: ${newClient.companyName}`);
   };
 
@@ -348,7 +344,7 @@ React.useEffect(() => {
     if (currentUser) {
       userDataService.saveCall(currentUser.uid, call);
     }
-    logAction('VOIP_CALL_LOGGED', `Recorded call with ${call.phoneNumber} (${call.duration}) - Answered by: ${call.answeredBy || 'ai'}`);
+    logAction('VOIP_CALL_LOGGED', `Recorded call with \( {call.phoneNumber} ( \){call.duration}) - Answered by: ${call.answeredBy || 'ai'}`);
   };
 
   const handleDeleteCall = (callId: string) => {
@@ -358,33 +354,33 @@ React.useEffect(() => {
     }
     logAction('VOIP_CALL_DELETED', `Removed call record #${callId}`);
   };
-const handleProvisionAgent = (newAgentData: Partial<Agent>) => {
-  const newAgent: Agent = {
-    id: `agent-${Date.now()}`,
-    name: newAgentData.name || 'Nexus Agent',
-    codeName: newAgentData.codeName || 'NEXUS-01',
-    role: newAgentData.role || 'Autonomous Specialist',
-    department: newAgentData.department || 'Executive Operations',
-    modelTier: newAgentData.modelTier || 'gemini-2.0-flash',
-    riskClassification: newAgentData.riskClassification || 'Low',
-    permissionLevel: newAgentData.permissionLevel || 'Regular Staff',
-    capabilityProfile: newAgentData.capabilityProfile || 'Autonomous enterprise agent.',
-    status: 'active',
-    tasksCompleted: 0,
-    uptime: '100%',
-    lastActive: 'Just now',
-    avatarSeed: (newAgentData.name || 'nexus').toLowerCase()
+
+  const handleProvisionAgent = (newAgentData: Partial<Agent>) => {
+    const newAgent: Agent = {
+      id: `agent-${Date.now()}`,
+      name: newAgentData.name || 'Nexus Agent',
+      codeName: newAgentData.codeName || 'NEXUS-01',
+      role: newAgentData.role || 'Autonomous Specialist',
+      department: newAgentData.department || 'Executive Operations',
+      modelTier: newAgentData.modelTier || 'gemini-2.0-flash',
+      riskClassification: newAgentData.riskClassification || 'Low',
+      permissionLevel: newAgentData.permissionLevel || 'Regular Staff',
+      capabilityProfile: newAgentData.capabilityProfile || 'Autonomous enterprise agent.',
+      status: 'active',
+      tasksCompleted: 0,
+      uptime: '100%',
+      lastActive: 'Just now',
+      avatarSeed: (newAgentData.name || 'nexus').toLowerCase()
+    };
+
+    setAgents(prev => [newAgent, ...prev]);
+
+    if (currentUser) {
+      userDataService.saveAgent(currentUser.uid, newAgent);
+    }
+
+    logAction('PROVISION_AGENT', `Commissioned autonomous agent: ${newAgent.name}`);
   };
-
-  setAgents(prev => [newAgent, ...prev]);
-  
-  if (currentUser) {
-    userDataService.saveAgent(currentUser.uid, newAgent);
-  }
-
-  logAction('PROVISION_AGENT', `Commissioned autonomous agent: ${newAgent.name}`);
-};
-  
 
   const logAction = (action: string, details: string) => {
     const newLog: AuditLog = {
@@ -583,7 +579,7 @@ const handleProvisionAgent = (newAgentData: Partial<Agent>) => {
               onCreateJobFromEmail={(subject, sender, snippet) => {
                 handleCreateJob({
                   title: `Email Action Item: ${subject.slice(0, 45)}`,
-                  summary: `From ${sender}. Ingested from Gmail inbox: "${snippet}". Assigned to autonomous fleet queue.`,
+                  summary: `From \( {sender}. Ingested from Gmail inbox: " \){snippet}". Assigned to autonomous fleet queue.`,
                   priority: 'High',
                   status: 'In Progress'
                 });
@@ -647,7 +643,7 @@ const handleProvisionAgent = (newAgentData: Partial<Agent>) => {
         currentProfile={enterpriseProfile}
         onComplete={(newProfile) => {
           setEnterpriseProfile(newProfile);
-          logAction('WORKSPACE_SETUP_SAVED', `Updated identity for ${newProfile.name} (${newProfile.domain})`);
+          logAction('WORKSPACE_SETUP_SAVED', `Updated identity for \( {newProfile.name} ( \){newProfile.domain})`);
         }}
       />
 
