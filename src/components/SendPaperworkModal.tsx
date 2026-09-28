@@ -43,14 +43,14 @@ export const SendPaperworkModal: React.FC<SendPaperworkModalProps> = ({
   );
   const [assignedReviewerId, setAssignedReviewerId] = useState<string>('');
   const [urgency, setUrgency] = useState<PaperworkUrgency>('High Priority');
-  const [fileName, setFileName] = useState<string>('Standard_Work_Order_2026.pdf');
-  const [fileSize, setFileSize] = useState<string>('1.4 MB');
+  const [fileName, setFileName] = useState<string>('');
+  const [fileSize, setFileSize] = useState<string>('');
   const [fileType, setFileType] = useState<string>('application/pdf');
   const [fileDataUrl, setFileDataUrl] = useState<string | undefined>(undefined);
   const [notes, setNotes] = useState<string>('');
   const [autoDispatch, setAutoDispatch] = useState<boolean>(true);
-  const [estimatedBudget, setEstimatedBudget] = useState<string>('$1,500');
-  const [clientName, setClientName] = useState<string>('Apex Logistics Hub');
+  const [estimatedBudget, setEstimatedBudget] = useState<string>('');
+  const [clientName, setClientName] = useState<string>('');
   const [customMessage, setCustomMessage] = useState<string>('');
 
   if (!isOpen) return null;
@@ -75,45 +75,45 @@ export const SendPaperworkModal: React.FC<SendPaperworkModalProps> = ({
   const loadPaperworkTemplate = (type: PaperworkCategory) => {
     setCategory(type);
     if (type === 'Work Order') {
-      setTitle('Subcontractor Fiber Splicing Work Order Authorization');
-      setFileName('Subcontractor_Fiber_WO_Auth_v3.pdf');
+      setTitle('Operations Work Order Authorization');
+      setFileName('Work_Order_Authorization.pdf');
       setFileSize('1.2 MB');
       setTargetDepartment('Operations & Field Services');
       setUrgency('High Priority');
-      setNotes('Requires departmental approval before technicians enter active trench zone. Includes safety checklist, contractor licenses, and emergency contact list.');
+      setNotes('Standard operational work order requiring departmental review and approval.');
       setAutoDispatch(true);
-      setEstimatedBudget('$2,200 Labor');
-      setClientName('Metropolitan Fiber Ring');
+      setEstimatedBudget('');
+      setClientName('');
     } else if (type === 'Change Order') {
-      setTitle('Change Order #04: Additional Sub-Panel Conduit Installation');
-      setFileName('CO_04_SubPanel_Extension.pdf');
+      setTitle('Change Order Scope Revision');
+      setFileName('Change_Order_Revision.pdf');
       setFileSize('850 KB');
       setTargetDepartment('Legal & Compliance');
       setUrgency('Routine');
-      setNotes('Client requested 40ft conduit reroute to clear structural HVAC duct. $1,400 additional billable scope.');
+      setNotes('Scope revision and amendment to existing agreement.');
       setAutoDispatch(true);
-      setEstimatedBudget('$1,400 Billable Scope');
-      setClientName('Apex Logistics Hub');
+      setEstimatedBudget('');
+      setClientName('');
     } else if (type === 'Site Inspection') {
-      setTitle('High-Voltage Transformer Grounding & Arc-Flash Safety Sign-Off');
-      setFileName('Arc_Flash_Safety_Clearance_2026.pdf');
+      setTitle('Field Site Inspection & Safety Sign-Off');
+      setFileName('Site_Safety_SignOff.pdf');
       setFileSize('2.6 MB');
       setTargetDepartment('Legal & Compliance');
       setUrgency('Urgent / Immediate');
-      setNotes('Certified engineer field readings verified. Requires supervisor and compliance counter-signature before re-energizing substation.');
+      setNotes('Field verification and regulatory checklist sign-off.');
       setAutoDispatch(false);
-      setEstimatedBudget('$800 Audit');
-      setClientName('North Campus Industrial');
+      setEstimatedBudget('');
+      setClientName('');
     } else if (type === 'Invoice & Billing') {
-      setTitle('Milestone 2 Milestone Completion & Client Invoice Authorization');
-      setFileName('Invoice_Milestone2_Release.pdf');
+      setTitle('Deliverable Milestone Completion & Invoice Authorization');
+      setFileName('Invoice_Release_Auth.pdf');
       setFileSize('420 KB');
       setTargetDepartment('Executive Leadership');
       setUrgency('High Priority');
-      setNotes('Milestone 2 acceptance signed by client site director. Requesting release of invoice #INV-9021 for $18,500.');
+      setNotes('Project milestone sign-off for billing authorization.');
       setAutoDispatch(false);
-      setEstimatedBudget('$18,500 Billed');
-      setClientName('Vanguard Global Logistics');
+      setEstimatedBudget('');
+      setClientName('');
     }
   };
 
@@ -122,18 +122,19 @@ export const SendPaperworkModal: React.FC<SendPaperworkModalProps> = ({
     if (!title.trim() || !notes.trim()) return;
 
     const assignedReviewer = employees.find(e => e.id === assignedReviewerId);
+    const currentUser = employees.find(e => e.isCurrentUser) || employees[0];
 
     const docItem: PaperworkDocument = {
       id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       title: title.trim(),
       category,
-      fileName,
-      fileSize,
+      fileName: fileName || `${title.replace(/\s+/g, '_')}.pdf`,
+      fileSize: fileSize || '1.0 MB',
       fileType,
       fileDataUrl,
-      senderId: 'emp-01',
-      senderName: 'Alex Mercer',
-      senderDepartment: 'Executive Leadership',
+      senderId: currentUser?.id || 'emp-01',
+      senderName: currentUser?.name || 'Operations Director',
+      senderDepartment: currentUser?.department || 'Executive Leadership',
       targetDepartment,
       assignedReviewerId: assignedReviewer?.id,
       assignedReviewerName: assignedReviewer ? assignedReviewer.name : `${targetDepartment} Approver`,
@@ -395,7 +396,7 @@ export const SendPaperworkModal: React.FC<SendPaperworkModalProps> = ({
                     type="text"
                     value={clientName}
                     onChange={(e) => setClientName(e.target.value)}
-                    placeholder="e.g. Apex Logistics Hub"
+                    placeholder="e.g. Enterprise Client Organization"
                     className="w-full bg-[#050906] border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
                   />
                 </div>

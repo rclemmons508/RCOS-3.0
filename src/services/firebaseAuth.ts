@@ -7,13 +7,25 @@ import {
   signOut as firebaseSignOut,
   User
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { initializeFirestore, getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { firebaseConfig } from '../firebaseConfig';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = (firebaseConfig as any).firestoreDatabaseId 
-  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId) 
-  : getFirestore(app);
+
+function initFirestoreInstance() {
+  const databaseId = (firebaseConfig as any).firestoreDatabaseId;
+  try {
+    return databaseId
+      ? initializeFirestore(app, { experimentalForceLongPolling: true }, databaseId)
+      : initializeFirestore(app, { experimentalForceLongPolling: true });
+  } catch {
+    return databaseId
+      ? getFirestore(app, databaseId)
+      : getFirestore(app);
+  }
+}
+
+export const db = initFirestoreInstance();
 export const auth = getAuth(app);
 
 // Test Firestore connection on boot as required by Firebase skill
@@ -22,7 +34,7 @@ async function testConnection() {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('Firestore offline notice: client is operating in cached mode until connected.');
     }
   }
 }
@@ -143,7 +155,7 @@ export const initAuthListener = (
   });
 };
 
-export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessToken: string }> => {
+export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, googleProvider);
@@ -154,6 +166,15 @@ export const signInWithGoogleWorkspace = async (): Promise<{ user: User; accessT
     storeAccessToken(credential.accessToken);
     return { user: result.user, accessToken: credential.accessToken };
   } catch (error: any) {
+    // Normal user cancellation or popup closed before completing OAuth
+    if (
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request' ||
+      error?.message?.includes('auth/popup-closed-by-user')
+    ) {
+      console.info('Google sign-in popup was closed by user.');
+      return null;
+    }
     console.error('Firebase Google Sign-In error:', error);
     throw error;
   } finally {

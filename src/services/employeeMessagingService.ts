@@ -32,144 +32,22 @@ export const ENTERPRISE_DEPARTMENTS: Department[] = [
 export const INITIAL_EMPLOYEES: Employee[] = [
   {
     id: 'emp-01',
-    name: 'Alex Mercer',
-    email: 'alex.mercer@rcos.global',
-    role: 'Lead Operations Director',
+    name: 'Operations Director',
+    email: 'rcsoulutions@gmail.com',
+    role: 'Executive Director',
     department: 'Executive Leadership',
     status: 'online',
-    avatarSeed: 'alex',
-    phone: '+1 (555) 234-5601',
+    avatarSeed: 'director',
+    phone: '',
     isCurrentUser: true
-  },
-  {
-    id: 'emp-02',
-    name: 'Marcus Vance',
-    email: 'marcus.vance@rcos.global',
-    role: 'Field Operations Supervisor',
-    department: 'Operations & Field Services',
-    status: 'in_field',
-    avatarSeed: 'marcus',
-    phone: '+1 (555) 345-6702'
-  },
-  {
-    id: 'emp-03',
-    name: 'Elena Rostova',
-    email: 'elena.rostova@rcos.global',
-    role: 'Central Dispatch Coordinator',
-    department: 'Dispatch & Logistics',
-    status: 'online',
-    avatarSeed: 'elena',
-    phone: '+1 (555) 456-7803'
-  },
-  {
-    id: 'emp-04',
-    name: 'David Chen',
-    email: 'david.chen@rcos.global',
-    role: 'Senior Solutions Engineer',
-    department: 'Technical & Engineering',
-    status: 'online',
-    avatarSeed: 'david',
-    phone: '+1 (555) 567-8904'
-  },
-  {
-    id: 'emp-05',
-    name: 'Sarah Jenkins',
-    email: 'sarah.jenkins@rcos.global',
-    role: 'Key Accounts Manager',
-    department: 'Client Support & Accounts',
-    status: 'busy',
-    avatarSeed: 'sarah',
-    phone: '+1 (555) 678-9005'
-  },
-  {
-    id: 'emp-06',
-    name: 'Rachel Adams',
-    email: 'rachel.adams@rcos.global',
-    role: 'Compliance & Legal Counsel',
-    department: 'Legal & Compliance',
-    status: 'online',
-    avatarSeed: 'rachel',
-    phone: '+1 (555) 789-0106'
   }
 ];
 
-const INITIAL_MESSAGES: DirectMessage[] = [
-  {
-    id: 'msg-seed-1',
-    senderId: 'emp-03',
-    senderName: 'Elena Rostova',
-    senderRole: 'Central Dispatch Coordinator',
-    senderDepartment: 'Dispatch & Logistics',
-    recipientId: 'dept:Operations & Field Services',
-    recipientType: 'department',
-    recipientName: 'Operations & Field Services',
-    content: 'Team, dispatching immediate emergency maintenance job for North Campus facility. Priority has been elevated to Urgent.',
-    timestamp: '10:15 AM',
-    jobDispatch: {
-      jobId: 'job-disp-101',
-      title: 'North Campus Infrastructure Verification & HVAC Overhaul',
-      targetDepartment: 'Operations & Field Services',
-      assignedEmployeeName: 'Marcus Vance',
-      clientName: 'Apex Logistics Hub',
-      priority: 'Urgent',
-      dueDate: 'Today by 17:00',
-      budget: '$2,400 Labor / Parts',
-      summary: 'Emergency on-site triage and diagnostic inspection on primary chiller pump system.',
-      status: 'In Progress'
-    },
-    readBy: ['emp-01', 'emp-02']
-  },
-  {
-    id: 'msg-seed-2',
-    senderId: 'emp-02',
-    senderName: 'Marcus Vance',
-    senderRole: 'Field Operations Supervisor',
-    senderDepartment: 'Operations & Field Services',
-    recipientId: 'dept:Legal & Compliance',
-    recipientType: 'department',
-    recipientName: 'Legal & Compliance',
-    content: 'Rachel, please find attached the signed site safety inspection and subcontractor change order paperwork for the Apex site.',
-    timestamp: '11:30 AM',
-    paperwork: {
-      id: 'doc-seed-201',
-      title: 'Apex Facility Site Safety & Hazardous Materials Clearance Sign-Off',
-      category: 'Site Inspection',
-      fileName: 'Apex_Safety_Clearance_SignOff_2026.pdf',
-      fileSize: '1.8 MB',
-      fileType: 'application/pdf',
-      senderId: 'emp-02',
-      senderName: 'Marcus Vance',
-      senderDepartment: 'Operations & Field Services',
-      targetDepartment: 'Legal & Compliance',
-      assignedReviewerName: 'Rachel Adams',
-      submissionDate: 'Today, 11:30 AM',
-      urgency: 'High Priority',
-      status: 'Pending Review',
-      notes: 'Contains environmental sensor readings, high-voltage lockout tags, and vendor technician credentials. Please review and approve so field teams can proceed with phase 2.',
-      autoDispatchJobOnApproval: true,
-      estimatedBudget: '$1,500',
-      clientName: 'Apex Logistics Hub'
-    },
-    readBy: ['emp-01']
-  },
-  {
-    id: 'msg-seed-3',
-    senderId: 'emp-04',
-    senderName: 'David Chen',
-    senderRole: 'Senior Solutions Engineer',
-    senderDepartment: 'Technical & Engineering',
-    recipientId: 'emp-01',
-    recipientType: 'direct',
-    recipientName: 'Alex Mercer',
-    content: 'Alex, finished the telemetry API latency benchmark. We achieved 42ms median latency across all field endpoints. Telemetry documentation is ready for your sign-off.',
-    timestamp: '1:45 PM',
-    readBy: ['emp-01']
-  }
-];
+const INITIAL_MESSAGES: DirectMessage[] = [];
 
-const LOCAL_STORAGE_MSGS_KEY = 'rcos_employee_messages_v1';
-const LOCAL_STORAGE_EMPLOYEES_KEY = 'rcos_employees_roster_v1';
-const LOCAL_STORAGE_CURRENT_USER_KEY = 'rcos_current_active_employee_v1';
+const LOCAL_STORAGE_MSGS_KEY = 'rcos_employee_messages_v2';
+const LOCAL_STORAGE_EMPLOYEES_KEY = 'rcos_employees_roster_v2';
+const LOCAL_STORAGE_CURRENT_USER_KEY = 'rcos_current_active_employee_v2';
 
 class EmployeeMessagingService {
   private messages: DirectMessage[] = [];

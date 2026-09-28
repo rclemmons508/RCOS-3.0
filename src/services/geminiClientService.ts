@@ -1,4 +1,4 @@
-export type GeminiModelType = 'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite';
+export type GeminiModelType = 'gemini-3.8-flash' | 'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite';
 
 export interface ChatHistoryMessage {
   role: 'user' | 'model';
@@ -34,7 +34,7 @@ export class GeminiClientService {
   // Multi-turn Chat using Server Proxy (API keys stay strictly server-side)
   public async sendChatMessage(
     messages: ChatHistoryMessage[],
-    model: GeminiModelType = 'gemini-3.5-flash',
+    model: GeminiModelType = 'gemini-3.8-flash',
     systemInstruction?: string,
     useSearchGrounding: boolean = false
   ): Promise<ChatCompletionResponse> {

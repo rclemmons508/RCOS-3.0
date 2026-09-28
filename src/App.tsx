@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Header } from './components/Header';
 import { BottomNav, MainNavTab } from './components/BottomNav';
 import { MoreMenuModal } from './components/MoreMenuModal';
@@ -88,14 +89,15 @@ export const App: React.FC = () => {
   const [calls, setCalls] = useState<CallRecord[]>(INITIAL_CALL_RECORDS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
 
-  // Firestore Jobs & Calls Persistence Synchronization
+  // Firestore Persistence for Jobs, Calls, Agents, and Clients
   React.useEffect(() => {
     if (!currentUser) return;
+
     const unsubJobs = userDataService.subscribeToJobs(currentUser.uid, (firestoreJobs) => {
       if (firestoreJobs && firestoreJobs.length > 0) {
         setJobs(firestoreJobs);
       } else {
-        // Seed initial jobs to Firestore for this authenticated user
+        // Seed initial jobs if none exist yet
         INITIAL_JOBS.forEach((j) => {
           userDataService.saveJob(currentUser.uid, j);
         });
@@ -108,9 +110,33 @@ export const App: React.FC = () => {
       }
     });
 
+    const unsubAgents = userDataService.subscribeToAgents(currentUser.uid, (firestoreAgents) => {
+      if (firestoreAgents && firestoreAgents.length > 0) {
+        setAgents(firestoreAgents);
+      } else {
+        // Seed initial agents if none exist yet
+        INITIAL_AGENTS.forEach((a) => {
+          userDataService.saveAgent(currentUser.uid, a);
+        });
+      }
+    });
+
+    const unsubClients = userDataService.subscribeToClients(currentUser.uid, (firestoreClients) => {
+      if (firestoreClients && firestoreClients.length > 0) {
+        setClients(firestoreClients);
+      } else {
+        // Seed initial clients if none exist yet
+        INITIAL_CLIENTS.forEach((c) => {
+          userDataService.saveClient(currentUser.uid, c);
+        });
+      }
+    });
+
     return () => {
       unsubJobs();
       unsubCalls();
+      unsubAgents();
+      unsubClients();
     };
   }, [currentUser]);
 
@@ -188,7 +214,7 @@ export const App: React.FC = () => {
     };
     setJobs(prev => [newJob, ...prev]);
 
-    logAction('DIRECT_AGENT_TASK', `Dispatched workload to ${targetAgent?.name}: "${taskDescription}"`);
+    logAction('DIRECT_AGENT_TASK', `Dispatched workload to \( {targetAgent?.name}: " \){taskDescription}"`);
   };
 
   const handleTriggerWorkflow = (workflowId: string) => {
@@ -305,6 +331,11 @@ export const App: React.FC = () => {
     };
 
     setClients(prev => [newClient, ...prev]);
+
+    if (currentUser) {
+      userDataService.saveClient(currentUser.uid, newClient);
+    }
+
     logAction('CREATE_CLIENT', `Registered client organization: ${newClient.companyName}`);
   };
 
@@ -313,7 +344,7 @@ export const App: React.FC = () => {
     if (currentUser) {
       userDataService.saveCall(currentUser.uid, call);
     }
-    logAction('VOIP_CALL_LOGGED', `Recorded call with ${call.phoneNumber} (${call.duration}) - Answered by: ${call.answeredBy || 'ai'}`);
+    logAction('VOIP_CALL_LOGGED', `Recorded call with \( {call.phoneNumber} ( \){call.duration}) - Answered by: ${call.answeredBy || 'ai'}`);
   };
 
   const handleDeleteCall = (callId: string) => {
@@ -331,7 +362,7 @@ export const App: React.FC = () => {
       codeName: newAgentData.codeName || 'NEXUS-01',
       role: newAgentData.role || 'Autonomous Specialist',
       department: newAgentData.department || 'Executive Operations',
-      modelTier: newAgentData.modelTier || 'gemini-3.7-flash',
+      modelTier: newAgentData.modelTier || 'gemini-2.0-flash',
       riskClassification: newAgentData.riskClassification || 'Low',
       permissionLevel: newAgentData.permissionLevel || 'Regular Staff',
       capabilityProfile: newAgentData.capabilityProfile || 'Autonomous enterprise agent.',
@@ -343,6 +374,11 @@ export const App: React.FC = () => {
     };
 
     setAgents(prev => [newAgent, ...prev]);
+
+    if (currentUser) {
+      userDataService.saveAgent(currentUser.uid, newAgent);
+    }
+
     logAction('PROVISION_AGENT', `Commissioned autonomous agent: ${newAgent.name}`);
   };
 
@@ -543,7 +579,7 @@ export const App: React.FC = () => {
               onCreateJobFromEmail={(subject, sender, snippet) => {
                 handleCreateJob({
                   title: `Email Action Item: ${subject.slice(0, 45)}`,
-                  summary: `From ${sender}. Ingested from Gmail inbox: "${snippet}". Assigned to autonomous fleet queue.`,
+                  summary: `From \( {sender}. Ingested from Gmail inbox: " \){snippet}". Assigned to autonomous fleet queue.`,
                   priority: 'High',
                   status: 'In Progress'
                 });
@@ -607,7 +643,7 @@ export const App: React.FC = () => {
         currentProfile={enterpriseProfile}
         onComplete={(newProfile) => {
           setEnterpriseProfile(newProfile);
-          logAction('WORKSPACE_SETUP_SAVED', `Updated identity for ${newProfile.name} (${newProfile.domain})`);
+          logAction('WORKSPACE_SETUP_SAVED', `Updated identity for \( {newProfile.name} ( \){newProfile.domain})`);
         }}
       />
 
@@ -617,6 +653,9 @@ export const App: React.FC = () => {
         onClose={() => setIsCreateAgentModalOpen(false)}
         onCreate={handleProvisionAgent}
       />
+      
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 };

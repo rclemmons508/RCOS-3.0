@@ -21,35 +21,17 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenWorkspaceSync 
       title: 'Daily Strategic Intelligence Briefing (06:30 Cron)',
       type: 'Automated Cron',
       assignedAgent: 'Cognito Deep',
-      time: 'Today, 06:30 AM',
-      attendees: 'All Executive Admins',
+      time: 'Daily, 06:30 AM',
+      attendees: 'Automated System Service',
       status: 'Completed'
     },
     {
       id: 'ev-2',
-      title: 'Apex Logistics Quarterly SLA Review Call',
-      type: 'Executive Client Meeting',
-      assignedAgent: 'Vanguard CRM',
-      time: 'Today, 14:00 PM',
-      attendees: 'Marcus Vance, VP Operations',
-      status: 'Upcoming'
-    },
-    {
-      id: 'ev-3',
-      title: 'Automated HIPAA Key Rollover & Telemetry Audit',
+      title: 'Automated Security Key Rollover & Telemetry Audit',
       type: 'Security Sentry Execution',
       assignedAgent: 'Sentinel Risk',
-      time: 'Tomorrow, 00:00 AM',
+      time: 'Daily, 00:00 AM',
       attendees: 'Automated System Service',
-      status: 'Scheduled'
-    },
-    {
-      id: 'ev-4',
-      title: 'Beacon Health CMIO Check-In (Dr. Reed)',
-      type: 'Voice Consultation',
-      assignedAgent: 'Pulse Voice',
-      time: 'Thursday, 11:30 AM',
-      attendees: 'Dr. Evelyn Reed',
       status: 'Scheduled'
     }
   ]);
@@ -168,7 +150,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenWorkspaceSync 
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Apex Logistics Q4 Review"
+                  placeholder="e.g. Executive Operations Review"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white"

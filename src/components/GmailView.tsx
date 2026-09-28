@@ -107,12 +107,18 @@ export const GmailView: React.FC<GmailViewProps> = ({
     try {
       setIsAuthenticating(true);
       const res = await signInWithGoogleWorkspace();
+      if (!res) {
+        // User closed the popup, cancel gracefully
+        return;
+      }
       setAccessToken(res.accessToken);
       showNotification(`Connected as ${res.user.email}`, 'success');
       loadFolderMessages(res.accessToken, currentFolder);
     } catch (err: any) {
-      console.error('Sign in error:', err);
-      showNotification(err.message || 'Failed to authenticate with Google Workspace', 'error');
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        console.error('Sign in error:', err);
+        showNotification(err.message || 'Failed to authenticate with Google Workspace', 'error');
+      }
     } finally {
       setIsAuthenticating(false);
     }
